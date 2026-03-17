@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""算子验证脚本 — 对比框架实现 (Model) 与生成实现 (ModelNew) 的输出一致性。
+
+用法:
+    python verify.py --op_name <算子名> [--verify_dir <验证目录>] [--timeout <超时秒数>]
+
+前置条件（验证目录下需存在以下文件）:
+    {op_name}_torch.py            — 包含 Model, get_inputs, get_init_inputs
+    {op_name}_triton_ascend_impl.py — 包含 ModelNew
+"""
+import argparse
+import os
+import sys
+import subprocess
+
+
+def get_limit(data_type):
+    """根据数据类型获取精度阈值"""
+    import torch
+    if data_type == torch.float16:
+        return 0.004
+    elif data_type == torch.bfloat16:
+        return 0.03
+    elif data_type == torch.int8:
+        return 0.01
+    else:
+        return 0.02
+
+
+def compare(fw_out, impl_out, limit, data_type):
+    """对比框架输出和实现输出"""
+    import torch
+    fw_flat = fw_out.flatten().detach().cpu()
+    impl_flat = impl_out.flatten()
+    if isinstance(impl_flat, torch.Tensor):
+        impl_flat = impl_flat.detach().cpu()
+    else:
+        impl_flat = torch.tensor(impl_flat, dtype=fw_flat.dtype)
+
+    size = fw_flat.numel()
+
+    if fw_flat.shape != impl_flat.shape:
+        raise AssertionError(
+            f"验证失败，输出形状不一致: framework={fw_flat.shape}, impl={impl_flat.shape}"
+        )
+
+    fw_nan_mask = torch.isnan(fw_flat)
+    impl_nan_mask = torch.isnan(impl_flat)
+    if not torch.equal(fw_nan_mask, impl_nan_mask):
+        fw_nan_count = fw_nan_mask.sum().item()
+        impl_nan_count = impl_nan_mask.sum().item()
+        raise AssertionError(
+            f"验证失败，NaN 位置不匹配: Framework={fw_nan_count}/{size}, "
+            f"Implementation={impl_nan_count}/{size}"
+        )
+
+    fw_inf_mask = torch.isinf(fw_flat)
+    impl_inf_mask = torch.isinf(impl_flat)
+    if not torch.equal(fw_inf_mask, impl_inf_mask):
+        fw_inf_count = fw_inf_mask.sum().item()
+        impl_inf_count = impl_inf_mask.sum().item()
+        raise AssertionError(
+            f"验证失败，Inf 位置不匹配: Framework={fw_inf_count}/{size}, "
+            f"Implementation={impl_inf_count}/{size}"
+        )
+    if fw_inf_mask.any():
+        if not torch.equal(
+            torch.sign(fw_flat[fw_inf_mask]),
+            torch.sign(impl_flat[impl_inf_mask]),
+        ):
+            raise AssertionError("验证失败，Inf 符号不匹配")
+
+    finite_mask = torch.isfinite(fw_flat) & torch.isfinite(impl_flat)
+    finite_count = finite_mask.sum().item()
+    if finite_count == 0:
+        print("警告: 所有值都是非有限值，跳过精度检查")
+        return
+
+    fw_finite = fw_flat[finite_mask]
+    impl_finite = impl_flat[finite_mask]
+
+    if fw_finite.dtype == torch.bool:
+        if not torch.equal(fw_finite, impl_finite):
+            raise AssertionError(f"验证失败，布尔值不匹配: dtype={data_type}")
+        return
+
+    if impl_finite.dtype != fw_finite.dtype:
+        impl_finite = impl_finite.to(fw_finite.dtype)
+
+    abs_diff = torch.abs(fw_finite.float() - impl_finite.float())
+    abs_ref = torch.abs(fw_finite.float())
+    eps = 1e-8
+    relative_error = torch.where(abs_ref > eps, abs_diff / abs_ref, abs_diff)
+
+    err_cnt = (relative_error > limit).sum().item()
+    limit_cnt = int(finite_count * limit)
+
+    if err_cnt > limit_cnt:
+        max_error = relative_error.max().item()
+        mean_error = relative_error.mean().item()
+        mismatch_mask = relative_error > limit
+        mismatch_indices = torch.where(mismatch_mask)[0]
+        num_to_show = min(10, len(mismatch_indices))
+
+        error_msg = (
+            f"验证失败，输出不一致(误差数/最大容忍误差数): "
+            f"err_cnt={err_cnt} / {limit_cnt}, dtype={data_type}, limit={limit}\n"
+        )
+        error_msg += f"最大相对误差: {max_error:.6e}, 平均相对误差: {mean_error:.6e}\n"
+        error_msg += f"前 {num_to_show} 个不一致的值:\n"
+        for i in range(num_to_show):
+            idx = mismatch_indices[i].item()
+            error_msg += (
+                f"  位置[{idx}]: framework={fw_finite[idx]:.6e}, "
+                f"impl={impl_finite[idx]:.6e}, "
+                f"相对误差={relative_error[idx]:.6e}\n"
+            )
+        raise AssertionError(error_msg)
+
+
+def verify_implementations(op_name, verify_dir):
+    """验证框架实现和生成实现的结果一致性"""
+    import torch
+    sys.path.insert(0, verify_dir)
+
+    torch_module = __import__(f"{op_name}_torch")
+    FrameworkModel = torch_module.Model
+    get_inputs = torch_module.get_inputs
+    get_init_inputs = torch_module.get_init_inputs
+
+    impl_module = __import__(f"{op_name}_triton_ascend_impl")
+    ModelNew = impl_module.ModelNew
+
+    device = torch.device(
+        "npu" if hasattr(torch, "npu") and torch.npu.is_available()
+        else "cuda" if torch.cuda.is_available()
+        else "cpu"
+    )
+
+    torch.manual_seed(0)
+    if device.type == "npu":
+        torch.npu.manual_seed(0)
+    elif device.type == "cuda":
+        torch.cuda.manual_seed(0)
+
+    init_params = get_init_inputs()
+    framework_model = FrameworkModel(*init_params).to(device)
+    impl_model = ModelNew(*init_params).to(device)
+
+    torch.manual_seed(0)
+    if device.type == "npu":
+        torch.npu.manual_seed(0)
+    elif device.type == "cuda":
+        torch.cuda.manual_seed(0)
+    inputs_for_impl = [x.to(device) if isinstance(x, torch.Tensor) else x for x in get_inputs()]
+
+    torch.manual_seed(0)
+    if device.type == "npu":
+        torch.npu.manual_seed(0)
+    elif device.type == "cuda":
+        torch.cuda.manual_seed(0)
+    inputs_for_framework = [x.to(device) if isinstance(x, torch.Tensor) else x for x in get_inputs()]
+
+    with torch.no_grad():
+        impl_output = impl_model(*inputs_for_impl)
+
+    with torch.no_grad():
+        framework_output = framework_model(*inputs_for_framework)
+
+    if not isinstance(framework_output, (list, tuple)):
+        framework_output = [framework_output]
+    if not isinstance(impl_output, (list, tuple)):
+        impl_output = [impl_output]
+
+    if len(framework_output) != len(impl_output):
+        raise AssertionError(
+            f"验证失败，输出数量不一致: framework={len(framework_output)}, "
+            f"impl={len(impl_output)}"
+        )
+
+    for i, (fw_out, impl_out) in enumerate(zip(framework_output, impl_output)):
+        if fw_out is None or impl_out is None:
+            raise AssertionError(
+                f"输出 {i} 为 None: framework={fw_out is None}, impl={impl_out is None}"
+            )
+        if isinstance(fw_out, torch.Tensor) and isinstance(impl_out, torch.Tensor):
+            data_type = fw_out.dtype
+            limit = get_limit(data_type)
+            compare(fw_out, impl_out, limit, data_type)
+
+    print("验证成功")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="算子验证脚本")
+    parser.add_argument("--op_name", required=True, help="算子名称")
+    parser.add_argument(
+        "--verify_dir", default=".",
+        help="验证目录，包含 {op_name}_torch.py 和 {op_name}_triton_ascend_impl.py（默认当前目录）",
+    )
+    parser.add_argument("--timeout", type=int, default=300, help="超时秒数（默认 300）")
+    parser.add_argument(
+        "--_run", action="store_true",
+        help=argparse.SUPPRESS,  # 内部参数：子进程模式，直接执行验证
+    )
+    args = parser.parse_args()
+
+    verify_dir = os.path.abspath(args.verify_dir)
+    if not os.path.isdir(verify_dir):
+        print(f"错误: 验证目录不存在: {verify_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    if args._run:
+        # 子进程模式：直接执行验证逻辑
+        try:
+            verify_implementations(args.op_name, verify_dir)
+        except Exception as e:
+            print(f"{e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # 主进程模式：启动子进程执行验证，超时后 kill 整个进程树
+        cmd = [
+            sys.executable, os.path.abspath(__file__),
+            "--op_name", args.op_name,
+            "--verify_dir", verify_dir,
+            "--_run",
+        ]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout, stderr = proc.communicate(timeout=args.timeout)
+
+            sys.stdout.buffer.write(stdout)
+            sys.stdout.buffer.flush()
+            if proc.returncode != 0:
+                sys.stderr.buffer.write(stderr)
+                sys.stderr.buffer.flush()
+                sys.exit(proc.returncode)
+
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            print(f"验证超时（{args.timeout}秒），已终止子进程", file=sys.stderr)
+            sys.exit(1)

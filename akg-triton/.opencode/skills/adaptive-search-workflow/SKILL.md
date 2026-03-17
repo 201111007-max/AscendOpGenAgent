@@ -1,8 +1,8 @@
 ---
-name: adaptive-search
+name: adaptive-search-workflow
 description: >
-  Adaptive Search Agent - 基于UCB算法的自适应树搜索算子优化。
-  特点：智能选择、快速收敛、比evolve更快。
+  Adaptive Search Workflow - 基于UCB算法的自适应树搜索算子优化。
+  特点：智能选择、快速收敛、比evolve-workflow更快。
 mode: subagent
 temperature: 0.1
 tools:
@@ -12,8 +12,9 @@ tools:
   skill: true
   read: true
 argument-hint: >
-  必需：task-file、framework、backend、arch、dsl。
+  必需：task-file、arch。
   可选：max-concurrent、initial-tasks、max-tasks。
+  固定参数（无需传入）：framework=torch、backend=ascend、dsl=triton_ascend。
 ---
 
 # Adaptive Search Agent
@@ -129,26 +130,22 @@ class SearchController:
 ### 作为Skill调用
 
 ```bash
-skill adaptive_search \
+skill adaptive-search-workflow \
   --task-file /path/to/matmul.py \
-  --framework torch \
-  --backend cuda \
-  --arch a100 \
-  --dsl triton_cuda \
+  --arch ascend910b4 \
   --max-concurrent 4 \
   --max-tasks 50 \
   --output-path ${pwd}/triton_ascend_output/
 ```
+
+> **固定参数**：`framework=torch`、`backend=ascend`、`dsl=triton_ascend`，无需传入。
 
 ### 参数说明
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | --task-file | string | 是 | - | 任务文件路径 |
-| --framework | string | 是 | - | torch/mindspore |
-| --backend | string | 是 | - | cuda/ascend/cpu |
-| --arch | string | 是 | - | 架构类型 |
-| --dsl | string | 是 | - | DSL类型 |
+| --arch | string | 是 | - | 硬件架构（如 `ascend910b4`） |
 | --max-concurrent | int | 否 | 4 | 最大并发数 |
 | --initial-tasks | int | 否 | 4 | 初始任务数 |
 | --max-tasks | int | 否 | 50 | 最大总任务数 |
@@ -162,7 +159,7 @@ ${pwd}/triton_ascend_output/
 ├── generated_code.py          # 最佳实现代码
 ├── summary.json               # 搜索摘要
 │   {
-│     "subagent": "adaptive_search",
+│     "subagent": "adaptive-search-workflow",
 │     "success": true,
 │     "total_submitted": 50,
 │     "total_completed": 48,
@@ -203,7 +200,7 @@ ${pwd}/triton_ascend_output/
 
 ## 与KernelGen对比
 
-| 特性 | KernelGen | Adaptive Search |
+| 特性 | kernelgen-workflow | adaptive-search-workflow |
 |------|-----------|-----------------|
 | 速度 | 1-5分钟 | 2-5分钟 |
 | 优化能力 | 基础 | 强 |

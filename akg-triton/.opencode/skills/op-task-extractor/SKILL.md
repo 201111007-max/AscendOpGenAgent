@@ -1,253 +1,139 @@
 ---
 name: op-task-extractor
 description: >
-  算子任务提取Skill - 从用户代码中提取算子逻辑，生成KernelBench格式任务描述。
+  从用户 PyTorch/Python 代码中提取算子实现，构建为 KernelBench 格式的标准化
+  单文件自包含任务（task_desc.py）。支持从独立的文件中提取 shape/dtype 信息。
 argument-hint: >
-  输入：用户代码文件路径。
-  输出：KernelBench格式的{op_name}.py任务文件。
+  需要提供：1) 待优化的代码文件路径；
+  2) 可选：shape/dtype 信息来源文件路径
 ---
 
 # 算子任务提取 Skill
 
-## 功能概述
+<role>
+你是一个算子任务提取专家。你的任务是从用户提供的代码中提取出可优化的
+算子部分，并将其构建为 KernelBench 格式的 task_desc.py 文件。
+</role>
 
-Op Task Extractor负责：
-1. **代码分析**：分析用户提供的算子代码
-2. **逻辑提取**：提取算子的核心计算逻辑
-3. **格式转换**：转换为KernelBench标准格式
-4. **输入生成**：自动生成测试输入函数
+## 目标格式
 
-## 工作流程
+最终生成的文件必须是 **单一自包含 Python 文件**，**仅包含以下 4 个部分**：
 
-```
-输入：用户代码文件
-    ↓
-[代码解析] → 解析代码结构
-    ↓
-[算子识别] → 识别算子类型和接口
-    ↓
-[逻辑提取] → 提取forward实现
-    ↓
-[输入分析] → 分析输入形状和dtype
-    ↓
-[格式生成] → 生成KernelBench格式
-    ↓
-[验证检查] → 验证生成的任务文件
-    ↓
-输出：{op_name}.py任务文件
-```
+1. `import` 区：只允许 torch / torch.nn / 标准库
+2. `class Model(nn.Module)`：包装待优化算子逻辑（含 `__init__` 和 `forward`）
+3. `def get_inputs()`：返回 `forward()` 的输入参数列表
+4. `def get_init_inputs()`：返回 `__init__()` 的初始化参数列表
 
-## KernelBench格式
+详细格式规范见 `@references/kernelbench-format.md`
 
-生成的任务文件包含：
+---
+
+## 提取流程
+
+### Step 1: 代码分析
+
+- 读取用户提供的源代码文件
+- 读取 `arch` 配置（`framework=torch`、`backend=ascend`、`dsl=triton_ascend` 为固定值）
+- 识别用户指定的待优化部分——即待优化的算子/计算逻辑
+- 从用户的描述或提供的文件中提取 shape, dtype 等信息
+- 确定算子的输入/输出签名
+
+### Step 2: 依赖追踪
+
+- 分析目标代码段的依赖关系（AST 级别）
+- 追踪所有被调用的自定义函数/类
+- 确定需要内联的外部依赖
+- 识别 import 依赖链，区分标准库/PyTorch 与自定义模块
+
+### Step 3: 构建 task_desc.py
+
+- 将目标算子逻辑包装到 `Model.forward()` 中
+- 如果算子有初始化状态（如权重、参数），放入 `Model.__init__()`
+- 将所有依赖的自定义函数内联到文件中（禁止 import 外部模块）
+- 根据 shape/dtype 信息构建 `get_inputs()` 和 `get_init_inputs()`
+- 如果用户未提供 shape/dtype，从代码上下文推断合理默认值
+- 确保 `get_inputs()` 中的设备参数为 `device='cuda'`（或根据目标后端调整）
+
+### Step 4: 验证
+
+- 验证生成的 task_desc.py 是否符合 KernelBench 格式规范
+- 验证方法（使用 `bash` 工具执行）：
+  ```bash
+  python3 -c "
+  import importlib.util, torch, json
+  spec = importlib.util.spec_from_file_location('task', '/abs/path/task_desc.py')
+  mod = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(mod)
+  # 检查必需组件
+  assert hasattr(mod, 'Model'), 'Missing class Model'
+  assert hasattr(mod, 'get_inputs'), 'Missing function get_inputs'
+  assert hasattr(mod, 'get_init_inputs'), 'Missing function get_init_inputs'
+  # 检查可运行性
+  model = mod.Model(*mod.get_init_inputs())
+  inputs = mod.get_inputs()
+  output = model.forward(*inputs)
+  # 检查输出有效性
+  if isinstance(output, torch.Tensor):
+      assert not output.isnan().any(), 'Output contains NaN'
+      assert not output.isinf().any(), 'Output contains Inf'
+  print('Validation passed')
+  "
+  ```
+  将 `/abs/path/task_desc.py` 替换为实际的绝对路径。
+- 如果验证不通过，根据错误信息修复并重试（最多 2 次）
+- 如果验证通过，进入 Step 5 请求用户确认
+
+### Step 5: 用户确认
+- 使用 `question` 工具将完整的 task_desc.py 内容展示给用户，请求确认。
+- 若用户确认 task_desc 符合预期，算子提取任务完成，否则结合用户反馈返回 Step 3 重新生成。
+
+---
+
+## 关键约束
+
+| 约束 | 说明 |
+|------|------|
+| 自包含 | 所有依赖函数必须内联到文件中，禁止 import 项目内模块 |
+| 可执行 | `Model(*get_init_inputs()).forward(*get_inputs())` 必须直接运行 |
+| 确定性 | 给定相同输入，输出必须一致 |
+| 无 NaN/Inf | forward 输出不能包含 NaN 或 Inf |
+| 禁止重写 | 原始函数可运行就直接复用，一行都不改 |
+| 返回一致 | 返回类型/形状必须与原始实现一致 |
+| 合理输入 | get_inputs 应提供合理大小的输入（不能过小或过大） |
+
+---
+
+## 示例
+
+### 输入
+
+用户说："`/path/to/model.py` 的 `matmul_with_bias` 函数有优化空间，shape 信息在 `/path/to/config.py`"
+
+### 输出 task_desc.py
 
 ```python
 import torch
 import torch.nn as nn
 
-# 算子实现
-class Model(nn.Module):
-    def __init__(self, ...):
-        super().__init__()
-        # 初始化参数
-    
-    def forward(self, x, ...):
-        # 算子逻辑
-        return output
-
-# 输入生成函数
-def get_inputs():
-    # 生成测试输入
-    return [input1, input2, ...]
-
-# 初始化输入（可选）
-def get_init_inputs():
-    # 生成初始化输入
-    return [init_input1, ...]
-```
-
-## 提取内容
-
-### 1. 算子类定义
-
-提取`nn.Module`子类的定义：
-- 类名
-- `__init__`方法参数
-- `forward`方法签名
-
-### 2. 计算逻辑
-
-提取`forward`方法的实现：
-- 完整的计算逻辑
-- 所有PyTorch操作
-- 控制流（if/for/while）
-
-### 3. 输入规格
-
-分析输入张量的规格：
-- 形状（Shape）
-- 数据类型（dtype）
-- 设备（device）
-
-### 4. 参数规格
-
-提取模型参数：
-- 权重张量
-- 偏置张量
-- 超参数
-
-## 使用方式
-
-### 在op-optimizer中调用
-
-Phase 2自动调用：
-
-```
-Phase 2: 构建任务描述代码
-    ↓
-加载 op-task-extractor skill
-    ↓
-提取算子逻辑
-    ↓
-生成{op_name}.py
-```
-
-### 独立调用
-
-```bash
-skill op-task-extractor \
-  --input-file ./user_relu.py \
-  --output-path ${pwd}/triton_ascend_output/tasks/ \
-  --op-name relu
-```
-
-### 参数说明
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| --input-file | string | 是 | 用户代码文件路径 |
-| --output-path | string | 否 | 输出目录，默认${pwd}/triton_ascend_output |
-| --op-name | string | 否 | 算子名称，自动推断 |
-
-## 支持的输入格式
-
-### 格式1：完整nn.Module
-
-```python
-import torch.nn as nn
-
-class MyReLU(nn.Module):
-    def __init__(self):
-        super().__init__()
-    
-    def forward(self, x):
-        return torch.relu(x)
-```
-
-### 格式2：函数式实现
-
-```python
-import torch
-
-def my_relu(x):
-    return torch.relu(x)
-```
-
-### 格式3：融合算子
-
-```python
-class FusedOp(nn.Module):
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.weight = nn.Parameter(torch.randn(hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-    
-    def forward(self, x):
-        # LayerNorm + GELU融合
-        normalized = (x - x.mean(-1, keepdim=True)) / (x.std(-1, keepdim=True) + 1e-5)
-        return self.weight * normalized + self.bias
-```
-
-## 输出示例
-
-### 输入：用户代码
-
-```python
-# user_layernorm.py
-import torch
-import torch.nn as nn
-
-class LayerNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-5):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-        self.eps = eps
-    
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        var = x.var(-1, keepdim=True, unbiased=False)
-        return self.weight * (x - mean) / torch.sqrt(var + self.eps) + self.bias
-```
-
-### 输出：任务文件
-
-```python
-# layernorm.py
-import torch
-import torch.nn as nn
-from typing import Tuple
 
 class Model(nn.Module):
-    def __init__(self, hidden_size: int = 768, eps: float = 1e-5):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-        self.eps = eps
-        self.hidden_size = hidden_size
-    
+    def __init__(self, in_features: int, out_features: int):
+        super(Model, self).__init__()
+        self.weight = nn.Parameter(torch.randn(out_features, in_features))
+        self.bias = nn.Parameter(torch.randn(out_features))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mean = x.mean(-1, keepdim=True)
-        var = x.var(-1, keepdim=True, unbiased=False)
-        return self.weight * (x - mean) / torch.sqrt(var + self.eps) + self.bias
+        return torch.matmul(x, self.weight.t()) + self.bias
 
-def get_inputs() -> Tuple[torch.Tensor]:
+
+def get_inputs():
     batch_size = 32
-    seq_len = 128
-    hidden_size = 768
-    x = torch.randn(batch_size, seq_len, hidden_size)
-    return (x,)
+    in_features = 1024
+    return [torch.randn(batch_size, in_features, device='cuda')]
 
-def get_init_inputs() -> Tuple[int, float]:
-    return (768, 1e-5)
+
+def get_init_inputs():
+    in_features = 1024
+    out_features = 512
+    return [in_features, out_features]
 ```
-
-## 验证检查
-
-生成后会自动验证：
-
-```bash
-python validate_kernelbench_task.py layernorm.py --json
-```
-
-**验证内容**：
-- 语法正确性
-- 类名是否为`Model`
-- 是否包含`get_inputs`函数
-- 输入输出类型是否匹配
-
-## 错误处理
-
-| 错误类型 | 原因 | 处理 |
-|---------|------|------|
-| 解析失败 | 代码语法错误 | 提示用户修复代码 |
-| 未找到算子 | 没有nn.Module | 提示提供完整类定义 |
-| 输入推断失败 | 形状不确定 | 使用默认形状或提示用户 |
-| 验证失败 | 格式不符合 | 自动修复或提示 |
-
-## 最佳实践
-
-1. **提供完整代码**：包含所有import和类定义
-2. **明确形状**：在代码中体现张量形状
-3. **避免外部依赖**：只使用标准PyTorch操作
-4. **检查生成结果**：确认任务文件符合预期

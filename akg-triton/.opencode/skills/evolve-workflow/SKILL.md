@@ -1,7 +1,7 @@
 ---
-name: evolve
+name: evolve-workflow
 description: >
-  Evolve Agent - 基于岛屿模型的进化算法算子优化。
+  Evolve Workflow - 基于岛屿模型的进化算法算子优化。
   特点：多轮迭代、多样性强、追求极致性能。
 mode: subagent
 temperature: 0.1
@@ -12,15 +12,16 @@ tools:
   skill: true
   read: true
 argument-hint: >
-  必需：task-file、framework、backend、arch、dsl。
+  必需：task-file、arch。
   可选：max-rounds、parallel-num、num-islands。
+  固定参数（无需传入）：framework=torch、backend=ascend、dsl=triton_ascend。
 ---
 
-# Evolve Agent
+# Evolve Workflow
 
 ## 功能概述
 
-Evolve是基于岛屿模型（Island Model）的进化算法Agent，特点：
+Evolve Workflow是基于岛屿模型（Island Model）的进化算法Agent，特点：
 - **多轮迭代**：5-20轮演化持续优化
 - **岛屿模型**：多岛屿并行演化，定期迁移
 - **多样性强**：探索多种优化策略
@@ -45,7 +46,7 @@ Evolve是基于岛屿模型（Island Model）的进化算法Agent，特点：
 
 ## 核心组件
 
-### 1. 岛屿管理器 (Island Manager)
+### 1. 岛屿管理器
 
 管理多个进化岛屿：
 
@@ -53,12 +54,12 @@ Evolve是基于岛屿模型（Island Model）的进化算法Agent，特点：
 class IslandManager:
     def __init__(self, num_islands: int):
         self.islands = [Island() for _ in range(num_islands)]
-    
+
     def evolve_round(self):
         """执行一轮进化"""
         for island in self.islands:
             island.evolve()
-    
+
     def migrate(self):
         """岛屿间迁移优秀个体"""
         # 选择优秀个体迁移到其他岛屿
@@ -71,7 +72,7 @@ class IslandManager:
 | migration_interval | 迁移间隔（轮数） | 2 |
 | elite_size | 精英个体数 | 2 |
 
-### 2. 进化算子 (Evolution Operators)
+### 2. 进化算子
 
 实现进化算法的核心操作：
 
@@ -80,11 +81,11 @@ class EvolutionOperators:
     def select_parents(self, population: List[Individual]) -> List[Individual]:
         """选择父代（锦标赛选择）"""
         pass
-    
+
     def crossover(self, parent1: Individual, parent2: Individual) -> Individual:
         """交叉操作"""
         pass
-    
+
     def mutate(self, individual: Individual) -> Individual:
         """变异操作"""
         pass
@@ -95,7 +96,7 @@ class EvolutionOperators:
 - **结构变异**：修改算法结构
 - **融合变异**：融合多个优秀特性
 
-### 3. 适应度评估器 (Fitness Evaluator)
+### 3. 适应度评估器
 
 评估个体（代码实现）的性能：
 
@@ -104,12 +105,12 @@ class FitnessEvaluator:
     def evaluate(self, code: str) -> FitnessScore:
         """
         评估适应度
-        
+
         指标：
         - 正确性：是否通过验证
         - 性能：执行速度
         - 复杂度：代码复杂度
-        
+
         Returns:
             FitnessScore: 综合适应度分数
         """
@@ -120,27 +121,23 @@ class FitnessEvaluator:
 ### 作为Skill调用
 
 ```bash
-skill evolve \
+skill evolve-workflow \
   --task-file /path/to/matmul.py \
-  --framework torch \
-  --backend cuda \
-  --arch a100 \
-  --dsl triton_cuda \
+  --arch ascend910b4 \
   --max-rounds 5 \
   --parallel-num 4 \
   --num-islands 2 \
   --output-path ${pwd}/triton_ascend_output/
 ```
 
+> **固定参数**：`framework=torch`、`backend=ascend`、`dsl=triton_ascend`，无需传入。
+
 ### 参数说明
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | --task-file | string | 是 | - | 任务文件路径 |
-| --framework | string | 是 | - | torch/mindspore |
-| --backend | string | 是 | - | cuda/ascend/cpu |
-| --arch | string | 是 | - | 架构类型 |
-| --dsl | string | 是 | - | DSL类型 |
+| --arch | string | 是 | - | 硬件架构（如 `ascend910b4`） |
 | --max-rounds | int | 否 | 5 | 最大进化轮数 |
 | --parallel-num | int | 否 | 4 | 每轮并行数 |
 | --num-islands | int | 否 | 2 | 岛屿数量 |
@@ -154,7 +151,7 @@ ${pwd}/triton_ascend_output/
 ├── generated_code.py          # 最佳实现代码
 ├── summary.json               # 进化摘要
 │   {
-│     "subagent": "evolve",
+│     "subagent": "evolve-workflow",
 │     "success": true,
 │     "total_rounds": 5,
 │     "total_tasks": 80,
@@ -184,9 +181,9 @@ ${pwd}/triton_ascend_output/
 - 需要探索多样化实现
 
 ❌ **不推荐使用**：
-- 时间敏感（使用kernelgen或adaptive_search）
-- 只需要快速原型（使用kernelgen）
-- 资源受限（evolve资源消耗高）
+- 时间敏感（使用kernelgen-workflow或adaptive-search-workflow）
+- 只需要快速原型（使用kernelgen-workflow）
+- 资源受限（evolve-workflow资源消耗高）
 
 ## 性能指标
 
@@ -197,8 +194,8 @@ ${pwd}/triton_ascend_output/
 
 ## 与Adaptive Search对比
 
-| 特性 | Adaptive Search | Evolve |
-|------|-----------------|--------|
+| 特性 | adaptive-search-workflow | evolve-workflow |
+|------|---------------------|---------------|
 | 算法 | UCB树搜索 | 岛屿模型进化 |
 | 速度 | 2-5分钟 | 15-60分钟 |
 | 探索能力 | 强 | 极强 |
@@ -207,28 +204,28 @@ ${pwd}/triton_ascend_output/
 
 ## 依赖Skills
 
-- `evolve/evolution` - 进化算法
-- `evolve/selection` - 选择策略
+- `evolve-workflow/evolution` - 进化算法
+- `evolve-workflow/selection` - 选择策略
 
 ## 配置示例
 
 ```yaml
-evolve:
+evolve-workflow:
   evolution:
     max_rounds: 5
     parallel_num: 4
     handwrite_decay_rate: 2.0
-  
+
   island:
     num_islands: 2
     migration_interval: 2
     elite_size: 2
     parent_selection_prob: 0.5
-  
+
   population:
     initial_size: 8
     max_size: 16
-  
+
   mutation:
     rate: 0.3
     strategies:
@@ -249,6 +246,6 @@ Round 2:  [Island 0: 8个体]  [Island 1: 8个体]
            ...                  ...
               ↓                    ↓
 Round 5:  [Best: 28.3us]   [Best: 31.2us]
-              
+
 Global Best: 28.3us (Speedup: 3.16x)
 ```
