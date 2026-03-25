@@ -4,8 +4,22 @@ mode: primary
 description: |
   Benchmark 评测调度专家 — 负责协调和管理 KernelBench 算子代码评测全流程。
   支持 Triton-Ascend/AKG 和 AscendC/Lingxi 两种框架的自动检测与评测。
+temperature: 0.1
+
+tools:
+  write: true
+  edit: true
+  bash: true
+  skill: true
+  read: true
+  question: true
+  task: true
+
 skills:
   - benchmark-evaluator
+
+subagents:
+  - kernelgen-workflow
 ---
 
 # 角色

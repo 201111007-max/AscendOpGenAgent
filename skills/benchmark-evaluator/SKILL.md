@@ -1,17 +1,30 @@
 ---
 name: benchmark-evaluator
 description: >
-  Benchmark Evaluator Skill — 串行执行算子评测任务，调用指定 Agent 生成代码并验证。
-  接收已解析的参数，返回每个任务的结构化结果。
+  Benchmark Evaluator Skill — 串行执行算子评测任务，通过 task 工具调用 kernelgen-workflow
+  SubAgent 生成并验证代码，逐任务返回结果给调度 Agent。
 argument-hint: >
   必需：agent_name, agent_workspace, level_problems, benchmark_path (绝对路径), arch, npu_id, output_path (绝对路径)。
   可选：timeout_per_task, warmup, repeats, completed_tasks (用于断点续跑)。
+
+tools:
+  bash: true
+  read: true
+  write: true
+  task: true
+
+subagents:
+  - kernelgen-workflow
 ---
 
 # Benchmark Evaluator Skill
 
 <role>
-你是一个自动化评测任务执行器。你的任务是串行执行 KernelBench 评测任务，调用指定的 Agent 生成代码，验证正确性，测试性能，并返回每个任务的结构化结果。
+你是一个自动化评测任务执行器。你的任务是串行执行 KernelBench 评测任务，**通过 `task` 工具调用 `kernelgen-workflow` SubAgent** 生成并验证代码，逐任务返回结果给调度 Agent。
+
+**核心原则**：
+- 你**不负责**代码验证和性能测试（由 `kernelgen-workflow` SubAgent 内部完成）
+- 你**只负责**任务扫描、调度 SubAgent、收集结果、逐任务汇报
 </role>
 
 ---
@@ -56,33 +69,142 @@ argument-hint: >
 ```
 Phase 1: 初始化
   ├── 验证输入参数完整性
-  ├── 验证 benchmark_path 存在且有效
   ├── 设置环境变量 ASCEND_RT_VISIBLE_DEVICES={npu_id}
-  └── 创建输出目录结构
+  └── 调用 evaluator.py scan 扫描任务列表
 
-Phase 2: 任务扫描
-  ├── 根据 level_problems 扫描 benchmark_path
-  ├── 构建任务列表 [(level, problem_id, task_file)]
-  ├── 根据 completed_tasks 过滤已完成任务
-  └── 确定待执行任务队列
-
-Phase 3: 串行执行
+Phase 2: 串行执行（逐任务）
   └── 对于每个任务：
-      ├── 调用 kernelgen-workflow 生成代码
-      ├── 正确性验证（kernel-verifier skill）
-      ├── 性能测试（benchmark.py）
-      ├── 保存结果到 verify_result.json 和 perf_result.json
-      └── **返回任务结果给 Agent**
+      ├── 用 task 工具调用 kernelgen-workflow SubAgent
+      │     └── SubAgent 内部完成：代码生成 + 验证 + 性能测试
+      ├── 读取 SubAgent 输出的 summary.json
+      ├── 调用 evaluator.py save-result 保存结果
+      └── **立即向 Agent 汇报本任务结果**
 
-Phase 4: 完成
-  └── 返回执行摘要
+Phase 3: 完成
+  └── 调用 evaluator.py summary 生成执行摘要
+  └── 返回摘要给 Agent
 ```
+
+---
+
+## 详细执行步骤
+
+### Phase 1: 初始化与任务扫描
+
+1. **设置环境变量**：
+
+```bash
+export ASCEND_RT_VISIBLE_DEVICES={npu_id}
+```
+
+2. **调用 `evaluator.py scan` 扫描任务**：
+
+```bash
+python3 <本skill所在目录>/evaluator.py scan \
+    --benchmark_path <benchmark_path> \
+    --level_problems '<level_problems的JSON字符串>' \
+    --completed_tasks '<completed_tasks的JSON字符串>'
+```
+
+脚本输出 JSON 格式的待执行任务列表：
+
+```json
+{
+  "total_scanned": 50,
+  "skipped": 5,
+  "pending": [
+    {"level": 1, "problem_id": 3, "task_file": "/path/to/3_softmax.py", "op_name": "softmax"},
+    {"level": 1, "problem_id": 4, "task_file": "/path/to/4_matmul.py", "op_name": "matmul"}
+  ]
+}
+```
+
+### Phase 2: 串行执行
+
+对待执行任务列表中的**每个任务**，按以下步骤执行：
+
+#### Step 1: 创建任务输出目录
+
+```bash
+mkdir -p {output_path}/level_{level}/{problem_id}_{op_name}
+```
+
+#### Step 2: 调用 kernelgen-workflow SubAgent
+
+⚠️ **必须使用 `task` 工具**调用 SubAgent，不要使用 `opencode run` 或编造不存在的工具。
+
+```
+task(
+  subagent_type="kernelgen-workflow",
+  load_skills=[],
+  description="评测 Level{level} Problem{problem_id} {op_name} 算子",
+  prompt="任务文件路径: {task_file}\n输出路径: {output_path}/level_{level}/{problem_id}_{op_name}/\narch: {arch}\n框架: torch\n后端: ascend\nDSL: triton_ascend\nwarmup: {warmup}\nrepeats: {repeats}\n\n请直接执行生成和验证流程。",
+  run_in_background=false
+)
+```
+
+**参数说明**：
+- `subagent_type`: 固定为 `kernelgen-workflow`
+- `load_skills`: 传 `[]`，SubAgent 会自行加载 `code-generator` 和 `kernel-verifier` skill
+- `run_in_background`: 设为 `false`，同步等待完成
+
+#### Step 3: 收集结果
+
+SubAgent 完成后，读取其输出文件：
+
+```bash
+# 读取执行摘要
+cat {output_path}/level_{level}/{problem_id}_{op_name}/summary.json
+```
+
+从 `summary.json` 中提取：
+- `success`：是否生成并验证通过
+- `iterations`：总迭代次数
+- `perf_data`：性能数据（如果验证通过）
+- `failure_reason`：失败原因（如果失败）
+
+#### Step 4: 保存结构化结果
+
+```bash
+python3 <本skill所在目录>/evaluator.py save-result \
+    --output_path {output_path} \
+    --level {level} \
+    --problem_id {problem_id} \
+    --op_name {op_name} \
+    --summary_json {output_path}/level_{level}/{problem_id}_{op_name}/summary.json
+```
+
+#### Step 5: 向 Agent 汇报
+
+**每完成一个任务后**，立即向调度 Agent 汇报结果：
+
+```
+Level {level} Problem {problem_id} ({op_name}): {成功/失败}
+  - 迭代次数: {iterations}
+  - 验证结果: {通过/失败}
+  - 加速比: {speedup}x（如有）
+  - 失败原因: {reason}（如有）
+```
+
+然后继续下一个任务。
+
+### Phase 3: 完成
+
+所有任务执行完毕后，调用 `evaluator.py summary` 生成执行摘要：
+
+```bash
+python3 <本skill所在目录>/evaluator.py summary \
+    --output_path {output_path} \
+    --agent_name {agent_name}
+```
+
+将摘要返回给 Agent。
 
 ---
 
 ## 📤 返回结果格式
 
-### 单个任务结果
+### 单个任务结果（每完成一个任务立即返回）
 
 ```json
 {
@@ -90,18 +212,13 @@ Phase 4: 完成
   "problem_id": 1,
   "op_name": "matmul",
   "status": "success|failed|timeout",
-  "error_type": null|"compilation"|"verification"|"performance",
-  "error_message": "具体错误信息",
-  "verify_result": {
-    "passed": true,
-    "max_diff": 0.001,
-    "details": "..."
+  "iterations": 2,
+  "verify_passed": true,
+  "perf_data": {
+    "speedup_vs_torch": 1.5,
+    "avg_latency_ms": 10.5
   },
-  "perf_result": {
-    "speedup": 1.5,
-    "triton_time_ms": 10.5,
-    "pytorch_time_ms": 15.8
-  },
+  "failure_reason": null,
   "output_path": "<output_path>/level_1/1_matmul/",
   "execution_time_seconds": 120.5
 }
@@ -116,50 +233,9 @@ Phase 4: 完成
   "failed_tasks": 5,
   "timeout_tasks": 0,
   "total_execution_time_seconds": 12000,
-  "results": [
-    {/* 单个任务结果（包含 PyTorch vs 生成代码的性能对比）*/},
-    {/* 单个任务结果（包含 PyTorch vs 生成代码的性能对比）*/},
-    ...
-  ]
+  "results": [...]
 }
 ```
-
----
-
-## 🎯 核心职责
-
-### 1. 任务扫描
-
-- 根据 `level_problems` 扫描 `benchmark_path` 目录
-- 解析每个任务文件的元数据
-- 根据 `completed_tasks` 过滤已完成任务
-- 构建待执行任务队列
-
-### 2. 代码生成
-
-**直接调用 kernelgen-workflow**：
-
-```bash
-opencode run --agent kernelgen-workflow "生成并验证算子代码..."
-```
-
-### 3. 正确性验证
-
-- 调用 `kernel-verifier` skill
-- 对比生成代码与 PyTorch 参考实现的输出
-- 记录最大差异值（Max Diff）
-
-### 4. 性能测试
-
-- 调用 `benchmark.py` 脚本
-- 执行 warmup 和 repeats 次测试
-- 计算加速比（Triton vs PyTorch）
-
-### 5. 结果返回
-
-- **每完成一个任务，立即返回结果给 Agent**
-- 不生成报告（报告由 Agent 负责）
-- 不维护状态文件（状态由 Agent 维护）
 
 ---
 
@@ -171,91 +247,41 @@ Skill 在传入的 `output_path` 目录下创建任务子目录：
 {output_path}/                                      ← 由 Agent 创建并传入
 ├── level_{n}/                                      ← Skill 创建
 │   └── {problem_id}_{op_name}/                     ← Skill 创建
-│       ├── generated_code.py                       ← Skill 保存
-│       ├── verify_result.json                      ← Skill 保存
-│       └── perf_result.json                        ← Skill 保存
+│       ├── generated_code.py                       ← kernelgen-workflow 输出
+│       ├── summary.json                            ← kernelgen-workflow 输出
+│       ├── perf_result.json                        ← kernelgen-workflow 输出（验证通过时）
+│       └── iter_{n}/                               ← kernelgen-workflow 各轮迭代
+│           ├── generated_code.py
+│           ├── verify/
+│           └── log.md
 └── ...
 ```
 
 **注意**：
 - `output_path` 是**完整的根目录绝对路径**，由 Agent 创建
-- Skill **不添加** `run_{timestamp}/agent_{agent_name}/` 等中间层级
+- Skill **不添加**额外中间层级
 - Skill **不创建** `agent_report.md`（由 Agent 维护）
 - Skill **不维护** `.benchmark_state.json`（由 Agent 维护）
 
 ---
 
-## 💡 使用示例
+## ⛔ 禁止事项
 
-### 示例 1: 基础调用
-
-```python
-{
-  "agent_name": "triton-ascend",
-  "agent_workspace": "/root/.opencode",
-  "benchmark_path": "/root/.opencode/benchmarks/KernelBench",  # 已解析的绝对路径
-  "output_path": "/root/.opencode/benchmark_results/triton-ascend_20250324_103000_1234",  # Agent 创建的根目录绝对路径
-  "level_problems": {1: [1, 2, 3]},
-  "arch": "ascend910b2",  # Agent 检测后传入
-  "npu_id": 0  # Agent 选择后传入
-}
-```
-
-### 示例 2: 断点续跑
-
-```python
-{
-  "agent_name": "triton-ascend",
-  "agent_workspace": "/root/.opencode",
-  "benchmark_path": "/root/.opencode/benchmarks/KernelBench",
-  "output_path": "/root/.opencode/benchmark_results/triton-ascend_20250324_103000_1234",  # Agent 创建的根目录
-  "level_problems": {1: [1, 2, 3, 4, 5]},
-  "arch": "ascend910b2",
-  "npu_id": 0,
-  "completed_tasks": [  # Agent 从状态文件加载后传入
-    {"level": 1, "problem_id": 1},
-    {"level": 1, "problem_id": 2}
-  ]
-}
-```
+| 禁止 | 说明 |
+|------|------|
+| 自行调用 verify.py | 验证由 kernelgen-workflow SubAgent 内部完成 |
+| 自行调用 benchmark.py | 性能测试由 kernelgen-workflow SubAgent 内部完成 |
+| 使用 `opencode run` | 必须通过 `task` 工具调用 SubAgent |
+| 生成 agent_report.md | 报告由调度 Agent 负责 |
+| 维护 .benchmark_state.json | 状态由调度 Agent 维护 |
+| 批量执行后统一返回 | 必须逐任务返回结果 |
 
 ---
 
 ## 注意事项
 
-1. **参数预处理**：
-   - `benchmark_path` 必须是**已解析的绝对路径**
-   - `arch` 和 `npu_id` 由 Agent 检测/选择后传入
-   - Skill 不负责参数收集和解析
-
-2. **断点续跑**：
-   - Skill 根据 `completed_tasks` 跳过已完成任务
-   - 状态文件由 Agent 维护，Skill 不操作
-
-3. **结果返回**：
-   - 每完成一个任务，立即返回结果给 Agent
-   - 不生成报告，不维护状态文件
-
-4. **错误处理**：
-   - 单任务失败不影响整体流程
-   - 记录错误信息并返回给 Agent
-   - 超时任务标记为 `timeout` 状态
-
-5. **串行执行**：
-   - 任务按顺序逐个执行，不进行并行化
-   - 保证资源独占，避免 NPU 冲突
-
-6. **环境隔离**：
-   - 设置 `ASCEND_RT_VISIBLE_DEVICES={npu_id}` 确保 NPU 独占
-   - 每个任务独立的输出目录
-
----
-
-## 依赖
-
-- Python 3.8+
-- opencode Agent 调用机制
-- kernelgen-workflow subagent
-- kernel-verifier skill
-- KernelBench 数据集
-- NPU 设备（用于验证和性能测试）
+1. **逐任务返回**：每完成一个任务必须立即汇报，不要等所有任务完成后统一返回
+2. **参数预处理**：`benchmark_path`、`arch`、`npu_id` 均由 Agent 预处理后传入，Skill 不负责参数收集
+3. **断点续跑**：通过 `completed_tasks` 参数跳过已完成任务
+4. **错误隔离**：单任务失败不影响后续任务执行，记录错误并继续
+5. **串行执行**：任务按顺序逐个执行，保证 NPU 资源独占
