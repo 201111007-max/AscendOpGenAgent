@@ -372,7 +372,7 @@ else：
 |------|------|
 | 参数确认 | Phase 0 — arch + code-file-path + target-speedup（可选） |
 | 任务文件确认 | Phase 1 — `{op_name}.py` 必须展示并确认，确认前禁止 Phase 2 |
-| 优化结果确认 | Phase 3 — 展示 `optimized_code.py` 和性能数据，用户选择接受/继续优化/放弃 |
+| 优化结果确认 | Phase 3 — 展示 `optimized_code.py` 和性能数据，用户选择接受/放弃 |
 
 ### ⚠️ `question` 工具调用要求
 
