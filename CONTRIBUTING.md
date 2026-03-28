@@ -19,9 +19,15 @@
 | `infra` | CI、脚本、构建 |
 | `docs` | 文档 |
 
+示例：
+- `[triton] 新增 layernorm 算子生成支持`
+- `[ascendc] dsl-lowering tiling pass 优化`
+- `[benchmark] NPUKernelBench level2 新增 10 case`
+- `[router] op-router 增加 CUDA→Ascend 路由分支`
+
 ### 1.2 合入门禁
 
-**评测子集**：跑完 BASELINE.md 全部任务，精度性能不劣化
+**Benchmark评测**：跑完 BASELINE.md 全部任务，精度性能不劣化
 
 | 门禁 | 算子生成 | 性能优化 | 其他 |
 |------|:---:|:---:|:---:|
@@ -34,7 +40,7 @@
 > 退化豁免：PR 中写明原因 + follow-up plan，2 个 maintainer Approve 后可豁免。
 > 文档 / 基础设施类 PR 仅需不影响代码功能，无需上述门禁。
 
-### 1.3 如何运行评测
+### 1.3 Benchmark评测
 
 使用 `benchmark-Scheduler` agent 在 OpenCode 中执行评测：
 
