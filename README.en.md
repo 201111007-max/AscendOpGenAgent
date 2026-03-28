@@ -168,7 +168,7 @@ Serially generate tasks of level 1 in NPUKernelBench, with agent_workspace set t
 | 1 | 43 | `Max_Pooling_3D` | ✅ | ✅ | - | 8.34 ms | - | success |
 | 1 | 44 | `Average_Pooling_1D` | ✅ | ✅ | 20.52 ms | 63.92 ms | 0.32x | success |
 | 1 | 45 | `Average_Pooling_2D` | ✅ | ✅ | 3.89 ms | 2.67 ms | 1.46x | success |
-| 1 | 46 | `Average_Pooling_3D` | ❌ | ❌ | 0.17 ms | 0.08 ms | - | failure |
+| 1 | 46 | `Average_Pooling_3D` | ✅ | ✅ | 0.17 ms | 0.08 ms | - | success |
 | 1 | 48 | `Mean reduction over a dimension` | ✅ | ✅ | 7.69 ms | 248.97 ms | 0.03x | success |
 | 1 | 50 | `conv standard 2D square input square kernel` | ✅ | ✅ | - | - | - | success |
 | 1 | 51 | `Argmax over a dimension` | ✅ | ✅ | - | - | - | success |

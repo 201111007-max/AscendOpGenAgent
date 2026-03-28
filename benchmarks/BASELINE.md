@@ -27,7 +27,7 @@
 | 1 | 43 | Max_Pooling_3D |   Pass  |   Pass |            - |           8.34 |       - |
 | 1 | 44 | Average_Pooling_1D |   Pass  |   Pass |        20.52 |          63.92 |   0.32x |
 | 1 | 45 | Average_Pooling_2D |  Pass |  Pass |         3.89 |           2.67 |   1.46x |
-| 1 | 46 | Average_Pooling_3D |  Failed |  Failed |         0.17 |           0.08 |    2.06 |
+| 1 | 46 | Average_Pooling_3D |  Pass |  Pass |         0.17 |           0.08 |    2.06 |
 | 1 | 48 | Mean_reduction_over_a_dimension |   Pass  |   Pass |         7.69 |         248.97 |   0.03x |
 | 1 | 50 | conv_standard_2D_square_input_square_kernel |   Pass  |   Pass |            - |              - |       - |
 | 1 | 51 | Argmax_over_a_dimension |   Pass  |   Pass |            - |              - |       - |
@@ -49,7 +49,7 @@
 | 2 | 30 | Gemm_GroupNorm_Hardtanh |   Pass  |   Pass |         0.66 |           0.63 |   1.04x |
 | 2 | 94 | Gemm_BiasAdd_Hardtanh_Mish_GroupNorm | Failed | Failed |         0.66 |           0.66 |   1.00x |
 
-编译通过率：35/40
-精度通过率：35/40
-综合通过率（编译+精度均过）：35/40
+编译通过率：36/40
+精度通过率：36/40
+综合通过率（编译+精度均过）：36/40
 平均 Speedup：0.70x（仅统计有性能数据的 31 个任务）

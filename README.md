@@ -168,7 +168,7 @@ Agent 接收到指令后，将自动执行以下流程：确认参数 → 提取
 | 1 | 43 | `Max_Pooling_3D` | ✅ | ✅ |          - |    8.34 ms | - | 成功 |
 | 1 | 44 | `Average_Pooling_1D` | ✅ | ✅ |   20.52 ms |   63.92 ms | 0.32x | 成功 |
 | 1 | 45 | `Average_Pooling_2D` | ✅ | ✅ |    3.89 ms |    2.67 ms | 1.46x | 成功 |
-| 1 | 46 | `Average_Pooling_3D` | ❌ | ❌ |    0.17 ms |    0.08 ms | - | 失败 |
+| 1 | 46 | `Average_Pooling_3D` | ✅ | ✅ |    0.17 ms |    0.08 ms | - | 成功 |
 | 1 | 48 | `Mean reduction over a dimension` | ✅ | ✅ |    7.69 ms |  248.97 ms | 0.03x | 成功 |
 | 1 | 50 | `conv standard 2D square input square kernel` | ✅ | ✅ |          - |          - | - | 成功 |
 | 1 | 51 | `Argmax over a dimension` | ✅ | ✅ |          - |          - | - | 成功 |
