@@ -4,4 +4,4 @@ bun.lock
 benchmark_results/*
 benchmark_eval*
 kernel_meta/*
-__pycache__/*
+__pycache__
