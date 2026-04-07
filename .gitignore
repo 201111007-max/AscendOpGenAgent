@@ -8,3 +8,4 @@ __pycache__
 triton_ascend_output
 framework_profile*
 .claude
+output*
