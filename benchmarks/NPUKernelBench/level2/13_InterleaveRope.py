@@ -10,6 +10,32 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
+    # PyTorch native implementation of forward function
+    # def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    #     B, N, S, D = x.shape
+    # 
+    #     x_reshaped = x.reshape(B, N, S, D // 2, 2)
+    # 
+    #     x_transposed = x_reshaped.transpose(-1, -2)
+    # 
+    #     x_interleaved = x_transposed.reshape(B, N, S, D)
+    # 
+    #     cos_expanded = cos
+    #     sin_expanded = sin
+    # 
+    #     if cos_expanded.shape[2] == 1 and S > 1:
+    #         cos_expanded = cos_expanded.expand(B, N, S, D)
+    #     if sin_expanded.shape[2] == 1 and S > 1:
+    #         sin_expanded = sin_expanded.expand(B, N, S, D)
+    # 
+    #     x_rotated = torch.zeros_like(x_interleaved)
+    #     x_rotated[..., :D // 2] = -x_interleaved[..., D // 2:]
+    #     x_rotated[..., D // 2:] = x_interleaved[..., :D // 2]
+    # 
+    #     output = x_interleaved * cos_expanded + x_rotated * sin_expanded
+    # 
+    #     return output
+
     def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         """
         Performs interleave RoPE on input tensor.

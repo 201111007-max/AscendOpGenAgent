@@ -10,6 +10,37 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
+    # PyTorch native implementation of forward function
+    # def forward(self, input: torch.Tensor, indices: torch.Tensor, updates: torch.Tensor,
+    #             quant_scales: torch.Tensor, quant_zero_points: torch.Tensor = None,
+    #             axis: int = 0, quant_axis: int = 1, reduce: str = 'update') -> torch.Tensor:
+    #     if axis < 0:
+    #         axis = updates.ndim + axis
+    #     if quant_axis < 0:
+    #         quant_axis = updates.ndim + quant_axis
+    # 
+    #     quant_scales_expanded = quant_scales
+    #     while quant_scales_expanded.ndim < updates.ndim:
+    #         quant_scales_expanded = quant_scales_expanded.unsqueeze(0)
+    # 
+    #     quantized_updates = torch.round(updates / quant_scales_expanded).to(torch.int8)
+    # 
+    #     output = input.clone()
+    # 
+    #     indices_int64 = indices.to(torch.int64)
+    # 
+    #     for i, idx in enumerate(indices_int64):
+    #         idx_val = idx.item()
+    #         slices = [slice(None)] * output.ndim
+    #         slices[axis] = idx_val
+    # 
+    #         update_slices = [slice(None)] * quantized_updates.ndim
+    #         update_slices[0] = i
+    # 
+    #         output[tuple(slices)] = quantized_updates[tuple(update_slices)]
+    # 
+    #     return output
+
     def forward(self, input: torch.Tensor, indices: torch.Tensor, updates: torch.Tensor,
                 quant_scales: torch.Tensor, quant_zero_points: torch.Tensor = None,
                 axis: int = 0, quant_axis: int = 1, reduce: str = 'update') -> torch.Tensor:

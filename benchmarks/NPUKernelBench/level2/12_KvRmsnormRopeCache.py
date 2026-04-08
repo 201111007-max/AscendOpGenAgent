@@ -10,6 +10,75 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
+    # PyTorch native implementation of forward function
+    # def forward(self, kv: torch.Tensor, gamma: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
+    #             index: torch.Tensor, k_cache: torch.Tensor, ckv_cache: torch.Tensor,
+    #             k_rope_scale: torch.Tensor = None, c_kv_scale: torch.Tensor = None,
+    #             k_rope_offset: torch.Tensor = None, c_kv_offset: torch.Tensor = None,
+    #             epsilon: float = 1e-5, cache_mode: str = 'Norm', is_output_kv: bool = False) -> tuple:
+    #     B, _, S, hidden_size = kv.shape
+    #     rms_size = gamma.shape[0]
+    #     rope_size = hidden_size - rms_size
+    # 
+    #     rms_in = kv[..., :rms_size]
+    #     rope_in = kv[..., rms_size:]
+    # 
+    #     rms_mean = torch.mean(rms_in ** 2, dim=-1, keepdim=True)
+    #     rms_normalized = rms_in / torch.sqrt(rms_mean + epsilon)
+    #     y = gamma * rms_normalized
+    # 
+    #     rope_reshaped = rope_in.reshape(B, 1, S, rope_size // 2, 2)
+    # 
+    #     rope_transposed = rope_reshaped.transpose(-1, -2)
+    # 
+    #     rope_interleaved = rope_transposed.reshape(B, 1, S, rope_size)
+    # 
+    #     cos_expanded = cos
+    #     sin_expanded = sin
+    # 
+    #     if cos_expanded.shape[2] == 1 and S > 1:
+    #         cos_expanded = cos_expanded.expand(B, 1, S, rope_size)
+    #     if sin_expanded.shape[2] == 1 and S > 1:
+    #         sin_expanded = sin_expanded.expand(B, 1, S, rope_size)
+    # 
+    #     rope_rotated = torch.zeros_like(rope_interleaved)
+    #     rope_rotated[..., :rope_size // 2] = -rope_interleaved[..., rope_size // 2:]
+    #     rope_rotated[..., rope_size // 2:] = rope_interleaved[..., :rope_size // 2]
+    # 
+    #     k_embed = rope_interleaved * cos_expanded + rope_rotated * sin_expanded
+    # 
+    #     k_cache_out = k_cache.clone()
+    #     ckv_cache_out = ckv_cache.clone()
+    # 
+    #     if cache_mode == 'Norm':
+    #         if index.numel() > 0:
+    #             if index.dim() == 1:
+    #                 for i, idx in enumerate(index):
+    #                     idx_val = idx.item()
+    #                     if idx_val < k_cache_out.shape[0]:
+    #                         if i < B * S:
+    #                             b_idx = i // S
+    #                             s_idx = i % S
+    #                             if b_idx < B and s_idx < S:
+    #                                 k_cache_out[idx_val] = k_embed[b_idx, 0, s_idx]
+    #                                 ckv_cache_out[idx_val] = y[b_idx, 0, s_idx]
+    #             elif index.dim() == 2:
+    #                 for b in range(min(B, index.shape[0])):
+    #                     for s in range(min(S, index.shape[1])):
+    #                         idx = index[b, s].item()
+    #                         if idx < k_cache_out.shape[0]:
+    #                             k_cache_out[idx] = k_embed[b, 0, s]
+    #                             ckv_cache_out[idx] = y[b, 0, s]
+    # 
+    #     if is_output_kv:
+    #         k_embed_out = k_embed
+    #         y_out = y
+    #     else:
+    #         k_embed_out = None
+    #         y_out = None
+    # 
+    #     return k_cache_out, ckv_cache_out, k_embed_out, y_out
+
     def forward(self, kv: torch.Tensor, gamma: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
                 index: torch.Tensor, k_cache: torch.Tensor, ckv_cache: torch.Tensor,
                 k_rope_scale: torch.Tensor = None, c_kv_scale: torch.Tensor = None,
