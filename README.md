@@ -22,8 +22,8 @@
       - [场景一：单算子生成 (Lingxi-code Agent)](#场景一单算子生成-lingxi-code-agent)
       - [场景二：Benchmark 批量评测 (Ascend-Benchmark-Evaluator)](#场景二benchmark-批量评测-ascend-benchmark-evaluator)
     - [评测基线](#评测基线)
-      - [Triton（更新于 2026-03-27）](#triton更新于-2026-03-27)
-      - [AscendC（更新于 2026-03-27）](#ascendc更新于-2026-03-27)
+      - [Triton](#triton)
+      - [AscendC](#ascendc)
   - [项目结构](#项目结构)
   - [许可证](#许可证)
 
@@ -99,7 +99,7 @@ claude
 
 #### 场景二：Benchmark 批量评测
 
-适用于批量评测算子的生成效果，支持串行执行避免 NPU 冲突。
+适用于批量评测算子的生成效果，支持单 NPU 串行或多 NPU 并行执行。
 
 **操作步骤**：
 
@@ -112,25 +112,38 @@ mv skills/triton/* .claude/skills/
 ```
 
 2. 进入 AscendOpGenAgent 目录，执行批量调度脚本：
+
+**单 NPU 串行模式**：
 ```bash
 cd /path/to/AscendOpGenAgent
 bash utils/run_benchmark_triton.sh \
     --benchmark-dir /path/to/KernelBench \
     --level 1 \
-    --range 1-10 \
+    --range 1-30 \
     --npu 0 \
     --output /path/to/output
 ```
 
-**参数说明**：
-- `--benchmark-dir`: Benchmark 根目录路径
-- `--level`: Level 编号（1, 2, 3, 4）
-- `--range`: 算子范围，如 `41-53`（与 `--ids` 二选一）
-- `--ids`: 指定算子编号列表，逗号分隔，如 `3,7,15`（与 `--range` 二选一）
-- `--npu`: NPU 设备 ID（默认 0）
-- `--output`: 输出目录
+**多 NPU 并行模式**（推荐）：
+```bash
+cd /path/to/AscendOpGenAgent
+bash utils/run_benchmark_triton.sh \
+    --benchmark-dir /path/to/KernelBench \
+    --level 1 \
+    --range 1-30 \
+    --npu-list "0,1,2,3,4,5" \
+    --output /path/to/output
+```
 
-**执行流程**：脚本为每个算子启动独立的 claude session，串行执行，每个算子完整执行 Phase 0-5，自动生成 `batch_report.md` 汇总结果。
+**参数说明**：
+- `--benchmark-dir`: Benchmark 根目录路径（必填）
+- `--level`: Level 编号，如 1, 2, 3, 4（必填）
+- `--range`: 算子范围，如 `1-30`（与 `--ids` 二选一）
+- `--ids`: 指定算子编号列表，逗号分隔，如 `3,7,15`（与 `--range` 二选一）
+- `--npu`: 单 NPU 设备 ID，如 0（默认 0，与 `--npu-list` 互斥）
+- `--npu-list`: 多 NPU 列表，逗号分隔，如 `0,1,2,3,4,5`（与 `--npu` 互斥，优先级更高）
+- `--output`: 输出目录（必填）
+
 
 #### **3.2 AscendC**
 #### 场景一：单算子生成 (Lingxi-code Agent)
@@ -169,10 +182,10 @@ Agent 接收到指令后，将自动执行以下流程：确认参数 → 提取
 
 ### 评测基线
 
-#### Triton（更新于 2026-03-27）
-关于 Triton 的相关数据，请参阅[`benchmarks/BASELINE_0327.md`](benchmarks/BASELINE_0327.md)
+#### Triton
+关于 Triton 的相关数据，请参阅[`benchmarks/BASELINE_0408.md`](benchmarks/BASELINE_0408.md)
 
-#### AscendC（更新于 2026-03-27）
+#### AscendC
 关于 AscendC 的相关数据，请参阅[`benchmarks/BASELINE_0327.md`](benchmarks/BASELINE_0327.md) 
 
 
