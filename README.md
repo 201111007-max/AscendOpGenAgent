@@ -146,39 +146,81 @@ bash utils/run_benchmark_triton.sh \
 
 
 #### **3.2 AscendC**
+
 #### 场景一：单算子生成 (Lingxi-code Agent)
+
 适用于开发者需要快速生成、验证某个特定算子的 AscendC 实现。
 
 **操作步骤**：
-1. 在 OpenCode 中，通过 `/agents` 命令切换至 `Lingxi-code`。
-2. 输入算子生成 Prompt。
 
-**Prompt 示例**：
-```text
-/Lingxi-code
-生成一个基于 AscendC 框架的 softmax_mat 算子实现。目标设备架构为 ascend910b2，请将生成的代码文件输出至 /path/to/output/ 目录下。
+1. 在 AscendOpGenAgent 目录下配置 Agent 和 skills：
+```bash
+mkdir -p .claude
+mkdir -p .claude/skills
+mv agents/lingxi_code.md .claude/CLAUDE.md
+mv skills/ascend_call_generation/* .claude/skills/
 ```
 
-**执行流程**：
-Agent 接收到指令后，将自动执行以下流程：确认参数 → 提取任务描述 → 生成代码 → 验证精度与性能 → 输出最终报告。
+2. 进入 AscendOpGenAgent 目录，启动 claude：
+```bash
+claude
+```
+
+3. 输入算子生成 Prompt：
+```text
+生成一个基于 AscendC 框架的 softmax 算子实现。目标设备架构为 ascend910b2，请将生成的代码文件输出至 /path/to/output/ 目录下。
+```
+
+**执行流程**：Agent 自动执行：确认参数 → 提取任务描述 → 生成代码 → 验证精度与性能 → 输出最终报告。
+
+---
 
 #### 场景二：Benchmark 批量评测 (Ascend-Benchmark-Evaluator)
-适用于评估 Agent 在标准数据集（如 NPUKernelBench）上的整体代码生成能力。
+
+适用于批量评测算子的生成效果，支持单 NPU 串行或多 NPU 并行执行。
 
 **操作步骤**：
-1. 在 OpenCode 中，通过 `/skills` 命令切换至 `ascend-benchmark-evaluator`。
-2. 输入评测 Prompt。
 
-**Prompt 示例 1：基础评测**（仅指定目标与测试范围）
-```text
-串行生成NPUKernelBench中level1的任务,agent_workspace是<path/to/your/AscendOpGenAgent>,使用<Lingxi-code> agent
+1. 在 AscendOpGenAgent 目录下创建 `.claude` 目录并配置 Agent：
+```bash
+mkdir -p .claude
+mkdir -p .claude/skills
+mv agents/lingxi_code.md .claude/CLAUDE.md
+mv skills/ascend_call_generation/* .claude/skills/
+```
+
+2. 进入 AscendOpGenAgent 目录，执行批量调度脚本：
+
+**单 NPU 串行模式**：
+```bash
+cd /path/to/AscendOpGenAgent
+bash utils/run_benchmark_ascendc.sh \
+    --benchmark-dir /path/to/NPUKernelBench \
+    --level 1 \
+    --range 1-30 \
+    --npu 0 \
+    --output /path/to/output
+```
+
+**多 NPU 并行模式**（推荐）：
+```bash
+cd /path/to/AscendOpGenAgent
+bash utils/run_benchmark_ascendc.sh \
+    --benchmark-dir /path/to/NPUKernelBench \
+    --level 1 \
+    --range 1-30 \
+    --npu-list "0,1,2,3,4,5" \
+    --output /path/to/output
 ```
 
 **参数说明**：
-- `<agent_path>`: 本项目的工作目录路径（需包含 `agents/` 和 `skills/`）。
-- `<benchmark_path>`: 评测数据集（如 KernelBench）的本地路径。
-- `<output_path>`: **[可选]** 评测结果与生成代码的输出目录。
-- `ASCEND_RT_VISIBLE_DEVICES`: **[可选]** 指定使用的 NPU 设备 ID。
+- `--benchmark-dir`: Benchmark 根目录路径（必填）
+- `--level`: Level 编号，如 1, 2, 3（必填）
+- `--range`: 算子范围，如 `1-30`（与 `--ids` 二选一）
+- `--ids`: 指定算子编号列表，逗号分隔，如 `3,7,15`（与 `--range` 二选一）
+- `--npu`: 单 NPU 设备 ID，如 0（默认 0，与 `--npu-list` 互斥）
+- `--npu-list`: 多 NPU 列表，逗号分隔，如 `0,1,2,3,4,5`（与 `--npu` 互斥，优先级更高）
+- `--output`: 输出目录（必填）
 
 ### 评测基线
 
@@ -186,7 +228,7 @@ Agent 接收到指令后，将自动执行以下流程：确认参数 → 提取
 关于 Triton 的相关数据，请参阅[`benchmarks/BASELINE_0408.md`](benchmarks/BASELINE_0408.md)
 
 #### AscendC
-关于 AscendC 的相关数据，请参阅[`benchmarks/BASELINE_0327.md`](benchmarks/BASELINE_0327.md) 
+关于 AscendC 的相关数据，请参阅[`benchmarks/BASELINE_0408.md`](benchmarks/BASELINE_0408.md) 
 
 
 

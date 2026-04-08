@@ -76,13 +76,15 @@ Suitable for developers who need to quickly generate and verify the Triton imple
 
 **Steps**:
 
-1. Configure the Agent in the AscendOpGenAgent directory:
+1. Configure the Agent and skills in the AscendOpGenAgent directory:
 ```bash
 mkdir -p .claude
+mkdir -p .claude/skills
 cp agents/triton-ascend-coder.md .claude/CLAUDE.md
+cp -r skills/triton/* .claude/skills/
 ```
 
-2. Start Claude Code:
+2. Enter the AscendOpGenAgent directory and start Claude:
 ```bash
 claude
 ```
@@ -102,7 +104,7 @@ Suitable for batch generation and evaluation of multiple operators with support 
 
 **Steps**:
 
-1. Configure the Agent in the AscendOpGenAgent directory:
+1. Create the `.claude` directory in the AscendOpGenAgent directory and configure the Agent:
 ```bash
 mkdir -p .claude
 mkdir -p .claude/skills
@@ -110,7 +112,7 @@ mv agents/triton-ascend-coder.md .claude/CLAUDE.md
 mv skills/triton/* .claude/skills/
 ```
 
-2. Execute the batch scheduling script:
+2. Enter the AscendOpGenAgent directory and execute the batch scheduling script:
 
 **Single NPU Serial Mode** (backward compatible):
 ```bash
@@ -147,38 +149,79 @@ bash utils/run_benchmark_triton.sh \
 #### **3.2 AscendC**
 
 #### Scenario 1: Single Operator Generation (Lingxi-code Agent)
+
 Suitable for developers who need to quickly generate and verify the AscendC implementation of a specific operator.
 
 **Steps**:
-1. In OpenCode, switch to `Lingxi-code` via the `/agents` command.
-2. Enter the operator generation Prompt.
 
-**Prompt Example**:
-```text
-/Lingxi-code
-Generate a softmax_mat operator implementation based on the AscendC framework. The target device architecture is ascend910b2. Please output the generated code files to the /path/to/output/ directory.
+1. Configure the Agent and skills in the AscendOpGenAgent directory:
+```bash
+mkdir -p .claude
+mkdir -p .claude/skills
+mv agents/lingxi_code.md .claude/CLAUDE.md
+mv skills/ascend_call_generation/* .claude/skills/
 ```
 
-**Execution Flow**:
-After receiving the instruction, the Agent will automatically execute the following workflow: Confirm parameters → Extract task description → Generate code → Verify accuracy and performance → Output final report.
+2. Enter the AscendOpGenAgent directory and start Claude:
+```bash
+claude
+```
+
+3. Enter the operator generation Prompt:
+```text
+Generate a softmax operator implementation based on the AscendC framework. The target device architecture is ascend910b2. Please output the generated code files to the /path/to/output/ directory.
+```
+
+**Execution Flow**: Agent automatically executes: Confirm parameters → Extract task description → Generate code → Verify accuracy and performance → Output final report.
+
+---
 
 #### Scenario 2: Batch Benchmark Evaluation (Ascend-Benchmark-Evaluator)
-Suitable for evaluating the overall code generation capability of the Agent on standard datasets (e.g., NPUKernelBench).
+
+Suitable for batch generation and evaluation of multiple operators with support for single NPU serial or multi-NPU parallel execution.
 
 **Steps**:
-1. In OpenCode, switch to `ascend-benchmark-evaluator` via the `/skills` command.
-2. Enter the evaluation Prompt.
 
-**Prompt Example 1: Basic Evaluation** (Only specify target and test scope)
-```text
-Serially generate tasks of level 1 in NPUKernelBench, with agent_workspace set to <path/to/your/AscendOpGenAgent>, using the <Lingxi-code> agent.
+1. Create the `.claude` directory in the AscendOpGenAgent directory and configure the Agent:
+```bash
+mkdir -p .claude
+mkdir -p .claude/skills
+mv agents/lingxi_code.md .claude/CLAUDE.md
+mv skills/ascend_call_generation/* .claude/skills/
+```
+
+2. Enter the AscendOpGenAgent directory and execute the batch scheduling script:
+
+**Single NPU Serial Mode**:
+```bash
+cd /path/to/AscendOpGenAgent
+bash utils/run_benchmark_ascendc.sh \
+    --benchmark-dir /path/to/NPUKernelBench \
+    --level 1 \
+    --range 1-30 \
+    --npu 0 \
+    --output /path/to/output
+```
+
+**Multi-NPU Parallel Mode** (recommended):
+```bash
+cd /path/to/AscendOpGenAgent
+bash utils/run_benchmark_ascendc.sh \
+    --benchmark-dir /path/to/NPUKernelBench \
+    --level 1 \
+    --range 1-30 \
+    --npu-list "0,1,2,3,4,5" \
+    --output /path/to/output
 ```
 
 **Parameter Description**:
-- `<agent_path>`: The working directory path of this project (must contain `agents/` and `skills/`).
-- `<benchmark_path>`: The local path of the evaluation dataset (e.g., KernelBench).
-- `<output_path>`: **[Optional]** Output directory for evaluation results and generated code.
-- `ASCEND_RT_VISIBLE_DEVICES`: **[Optional]** Specify the NPU device ID to use.
+- `--benchmark-dir`: Benchmark root directory path (required)
+- `--level`: Level number, e.g., 1, 2, 3 (required)
+- `--range`: Operator range, e.g., `1-30` (mutually exclusive with `--ids`)
+- `--ids`: Comma-separated operator ID list, e.g., `3,7,15` (mutually exclusive with `--range`)
+- `--npu`: Single NPU device ID, e.g., 0 (default 0, mutually exclusive with `--npu-list`)
+- `--npu-list`: Multi-NPU list, comma-separated, e.g., `0,1,2,3,4,5` (mutually exclusive with `--npu`, higher priority)
+- `--output`: Output directory (required)
 
 ### Evaluation Baseline
 
@@ -188,7 +231,7 @@ Please refer to [`benchmarks/BASELINE_0408.md`](benchmarks/BASELINE_0408.md) for
 
 #### AscendC
 
-Please refer to [`benchmarks/BASELINE_0327.md`](benchmarks/BASELINE_0327.md) for AscendC-related data.
+Please refer to [`benchmarks/BASELINE_0408.md`](benchmarks/BASELINE_0408.md) for AscendC-related data.
 
 ## Project Structure
 
