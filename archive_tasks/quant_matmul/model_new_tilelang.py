@@ -1,8 +1,14 @@
-import os
+import sys
+from pathlib import Path
 
 import torch
 import torch.nn as nn
-from quant_matmul.design.tile_level.int8_matmul_scale import (
+
+_TASK_DIR = Path(__file__).resolve().parent
+if str(_TASK_DIR) not in sys.path:
+    sys.path.insert(0, str(_TASK_DIR))
+
+from design.tile_level.int8_matmul_scale import (
     int8_matmul_scale as tl_int8_matmul_scale,
 )
 

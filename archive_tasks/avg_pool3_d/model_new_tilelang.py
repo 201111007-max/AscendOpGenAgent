@@ -1,8 +1,15 @@
+import sys
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
-from avg_pool3_d.design.tile_level.avg_pool3_d import avg_pool3_d as tl_avg_pool3_d
-from avg_pool3_d.model import SCENARIO_BY_SHAPE
+_TASK_DIR = Path(__file__).resolve().parent
+if str(_TASK_DIR) not in sys.path:
+    sys.path.insert(0, str(_TASK_DIR))
+
+from design.tile_level.avg_pool3_d import avg_pool3_d as tl_avg_pool3_d
+from model import SCENARIO_BY_SHAPE
 
 
 SPLIT_MODE_AUTO = 0

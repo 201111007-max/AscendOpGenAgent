@@ -3,7 +3,29 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKDIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+find_workdir() {
+  if [[ -n "${WORKDIR:-}" ]]; then
+    echo "${WORKDIR}"
+    return 0
+  fi
+
+  local candidate="${SCRIPT_DIR}"
+  while [[ "${candidate}" != "/" ]]; do
+    if [[ -f "${candidate}/utils/verification_tilelang.py" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+    candidate="$(cd "${candidate}/.." && pwd)"
+  done
+
+  return 1
+}
+
+WORKDIR="$(find_workdir)" || {
+  echo "Unable to locate repository root containing utils/verification_tilelang.py" >&2
+  exit 1
+}
 
 SSH_TARGET="${SSH_TARGET:-ascend-box}"
 REMOTE_PORT="${REMOTE_PORT:-}"
@@ -54,6 +76,11 @@ LOCAL_ARCHIVE="/tmp/${ARCHIVE_NAME}"
 REMOTE_ARCHIVE="/tmp/${ARCHIVE_NAME}"
 REMOTE_SESSION_DIR="${REMOTE_BASE_DIR}/${TIMESTAMP}"
 
+PYTHONPATH_PREFIX="${WORKDIR}"
+if [[ -d "${WORKDIR}/archive_tasks" ]]; then
+  PYTHONPATH_PREFIX="${WORKDIR}/archive_tasks:${PYTHONPATH_PREFIX}"
+fi
+
 if [[ ! -f "${WORKDIR}/utils/verification_tilelang.py" ]]; then
   echo "Missing verification script: ${WORKDIR}/utils/verification_tilelang.py" >&2
   exit 1
@@ -67,7 +94,9 @@ fi
 if python -c 'import tilelang; import torch; import torch_npu' >/dev/null 2>&1; then
   echo "Detected local TileLang-Ascend environment, running local verification"
   cd "${WORKDIR}"
-  ASCEND_RT_VISIBLE_DEVICES="${ASCEND_RT_VISIBLE_DEVICES}" python utils/verification_tilelang.py "${TASK}"
+  PYTHONPATH="${PYTHONPATH_PREFIX}${PYTHONPATH:+:${PYTHONPATH}}" \
+    ASCEND_RT_VISIBLE_DEVICES="${ASCEND_RT_VISIBLE_DEVICES}" \
+    python utils/verification_tilelang.py "${TASK}"
   exit 0
 fi
 
@@ -138,7 +167,9 @@ set -euo pipefail
 cd "${CONTAINER_WORKDIR}"
 source set_env.sh
 cd "${CONTAINER_WORKDIR}/${REMOTE_EVAL_WORKDIR}"
-ASCEND_RT_VISIBLE_DEVICES="${ASCEND_RT_VISIBLE_DEVICES}" python utils/verification_tilelang.py "${TASK}"
+PYTHONPATH="${CONTAINER_WORKDIR}/${REMOTE_EVAL_WORKDIR}/archive_tasks:${CONTAINER_WORKDIR}/${REMOTE_EVAL_WORKDIR}\${PYTHONPATH:+:\${PYTHONPATH}}" \
+ASCEND_RT_VISIBLE_DEVICES="${ASCEND_RT_VISIBLE_DEVICES}" \
+python utils/verification_tilelang.py "${TASK}"
 '
 EOF
 

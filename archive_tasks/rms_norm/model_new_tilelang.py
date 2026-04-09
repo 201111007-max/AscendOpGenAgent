@@ -1,7 +1,14 @@
+import sys
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
-from rms_norm.design.tile_level.rms_norm import rms_norm as tl_rms_norm
+_TASK_DIR = Path(__file__).resolve().parent
+if str(_TASK_DIR) not in sys.path:
+    sys.path.insert(0, str(_TASK_DIR))
+
+from design.tile_level.rms_norm import rms_norm as tl_rms_norm
 
 
 class ModelNew(nn.Module):

@@ -1,7 +1,14 @@
+import sys
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
-from current_task.design.tile_level.sparse_flash_attention import (
+_TASK_DIR = Path(__file__).resolve().parent
+if str(_TASK_DIR) not in sys.path:
+    sys.path.insert(0, str(_TASK_DIR))
+
+from design.tile_level.sparse_flash_attention import (
     sparse_flash_attention_fwd as tl_sparse_flash_attention_fwd,
 )
 

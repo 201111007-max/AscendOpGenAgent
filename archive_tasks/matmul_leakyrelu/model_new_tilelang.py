@@ -1,7 +1,14 @@
+import sys
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
-from matmul_leakyrelu.design.tile_level.matmul_leakyrelu import (
+_TASK_DIR = Path(__file__).resolve().parent
+if str(_TASK_DIR) not in sys.path:
+    sys.path.insert(0, str(_TASK_DIR))
+
+from design.tile_level.matmul_leakyrelu import (
     matmul_leakyrelu as tl_matmul_leakyrelu,
 )
 
