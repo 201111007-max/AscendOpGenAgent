@@ -10,6 +10,52 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
+    # PyTorch native implementation of forward function
+    # def forward(self, input: torch.Tensor, indices: torch.Tensor, updates: torch.Tensor,
+    #             quant_scales: torch.Tensor, quant_zero_points: torch.Tensor = None,
+    #             axis: int = 0, quant_axis: int = 1, reduce: str = 'update') -> torch.Tensor:
+    #     if axis < 0:
+    #         axis = input.ndim + axis
+
+    #     output = input.clone()
+
+    #     neg_inf_mask = (updates == -torch.inf)
+    #     pos_inf_mask = (updates == torch.inf)
+
+    #     quant_scales_expanded = quant_scales
+    #     while quant_scales_expanded.ndim < updates.ndim:
+    #         quant_scales_expanded = quant_scales_expanded.unsqueeze(0)
+
+    #     if quant_zero_points is not None:
+    #         quant_zp_expanded = quant_zero_points
+    #         while quant_zp_expanded.ndim < updates.ndim:
+    #             quant_zp_expanded = quant_zp_expanded.unsqueeze(0)
+    #         quantized = torch.round(updates.float() / quant_scales_expanded.float() + quant_zp_expanded.float())
+    #     else:
+    #         quantized = torch.round(updates.float() / quant_scales_expanded.float())
+    #     quantized = quantized.clamp(-128, 127).to(torch.int8)
+
+    #     quantized[neg_inf_mask] = -128
+    #     quantized[pos_inf_mask] = 127
+
+    #     indices_int64 = indices.to(torch.int64)
+    #     update_len = updates.shape[axis]
+
+    #     for i in range(indices_int64.shape[0]):
+    #         idx_val = indices_int64[i].item()
+    #         for j in range(update_len):
+    #             src_slices = [slice(None)] * quantized.ndim
+    #             src_slices[0] = i
+    #             src_slices[axis] = j
+
+    #             dst_slices = [slice(None)] * output.ndim
+    #             dst_slices[0] = i
+    #             dst_slices[axis] = idx_val + j
+
+    #             output[tuple(dst_slices)] = quantized[tuple(src_slices)]
+
+    #     return output
+
     def forward(self, input: torch.Tensor, indices: torch.Tensor, updates: torch.Tensor,
                 quant_scales: torch.Tensor, quant_zero_points: torch.Tensor = None,
                 axis: int = 0, quant_axis: int = 1, reduce: str = 'update') -> torch.Tensor:

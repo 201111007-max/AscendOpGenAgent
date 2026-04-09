@@ -10,6 +10,214 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
+    # PyTorch native implementation of forward function
+    # def forward(self, kv: torch.Tensor, gamma: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
+        #         index: torch.Tensor, k_cache: torch.Tensor, ckv_cache: torch.Tensor,
+        #         k_rope_scale: torch.Tensor = None, c_kv_scale: torch.Tensor = None,
+        #         k_rope_offset: torch.Tensor = None, c_kv_offset: torch.Tensor = None,
+        #         epsilon: float = 1e-5, cache_mode: str = 'Norm', is_output_kv: bool = False) -> tuple:
+
+        # B, N, S, hidden_size = kv.shape
+        # rms_size = gamma.shape[0]
+        # rope_size = hidden_size - rms_size
+        # orig_dtype = kv.dtype
+
+        # kv = kv.float()
+        # gamma = gamma.float()
+        # cos = cos.float()
+        # sin = sin.float()
+
+        # kv = rearrange(kv, 'b n s d -> b s n d')
+        # cos = rearrange(cos, 'b n s d -> b s n d')
+        # sin = rearrange(sin, 'b n s d -> b s n d')
+
+        # rms_in = kv[..., :rms_size]
+        # rope_in = kv[..., rms_size:]
+
+        # rms_mean = torch.mean(rms_in ** 2, dim=-1, keepdim=True)
+        # rms_normalized = rms_in / torch.sqrt(rms_mean + epsilon)
+        # v = gamma * rms_normalized
+
+        # k = rope_in.reshape(B, S, N, rope_size // 2, 2).transpose(-1, -2).reshape(B, S, N, rope_size)
+        # k1 = k[..., :rope_size // 2]
+        # k2 = k[..., rope_size // 2:]
+        # rotate_half_k = torch.cat((-k2, k1), dim=-1)
+
+        # if cos.shape[1] == 1 and S > 1:
+        #     cos = cos.expand(B, S, N, rope_size)
+        # if sin.shape[1] == 1 and S > 1:
+        #     sin = sin.expand(B, S, N, rope_size)
+
+        # k_embed = k * cos + rotate_half_k * sin
+
+        # v_out = rearrange(v, 'b s n d -> b n s d').to(orig_dtype)
+        # k_embed_out = rearrange(k_embed, 'b s n d -> b n s d').to(orig_dtype)
+
+        # v_for_cache = v.clone()
+        # k_for_cache = k_embed.clone()
+
+        # if c_kv_scale is not None:
+        #     v_for_cache = v_for_cache * c_kv_scale.float()
+        # if c_kv_offset is not None:
+        #     v_for_cache = v_for_cache + c_kv_offset.float()
+        # if c_kv_scale is not None:
+        #     v_for_cache = torch.round(v_for_cache).clamp(-128, 127)
+
+        # if k_rope_scale is not None:
+        #     k_for_cache = k_for_cache * k_rope_scale.float()
+        # if k_rope_offset is not None:
+        #     k_for_cache = k_for_cache + k_rope_offset.float()
+        # if k_rope_scale is not None:
+        #     k_for_cache = torch.round(k_for_cache).clamp(-128, 127)
+
+        # # Cache operations
+        # k_cache_out = k_cache.clone()
+        # ckv_cache_out = ckv_cache.clone()
+
+        # if cache_mode == 'Norm':
+        #     if index.dim() == 2:
+        #         for b in range(min(B, index.shape[0])):
+        #             for s in range(min(S, index.shape[1])):
+        #                 idx = index[b, s].item()
+        #                 if idx < 0:
+        #                     continue
+        #                 if idx < k_cache_out.shape[2]:
+        #                     k_cache_out[b, :, idx, :] = k_for_cache[b, s, :, :].to(k_cache_out.dtype)
+        #                     ckv_cache_out[b, :, idx, :] = v_for_cache[b, s, :, :].to(ckv_cache_out.dtype)
+        #     elif index.dim() == 1:
+        #         for i, idx_t in enumerate(index):
+        #             idx = idx_t.item()
+        #             if idx < 0:
+        #                 continue
+        #             b_idx = i // S
+        #             s_idx = i % S
+        #             if b_idx < B and s_idx < S and idx < k_cache_out.shape[2]:
+        #                 k_cache_out[b_idx, :, idx, :] = k_for_cache[b_idx, s_idx, :, :].to(k_cache_out.dtype)
+        #                 ckv_cache_out[b_idx, :, idx, :] = v_for_cache[b_idx, s_idx, :, :].to(ckv_cache_out.dtype)
+
+        # elif cache_mode in ['PA', 'PA_BNSD']:
+        #     if index.dim() == 1:
+        #         block_size = k_cache_out.shape[1]
+        #         k_flat = k_for_cache.reshape(B * S, N, -1)
+        #         v_flat = v_for_cache.reshape(B * S, N, -1)
+        #         cache_shape_k = k_cache_out.shape
+        #         cache_shape_v = ckv_cache_out.shape
+        #         k_cache_flat = k_cache_out.reshape(-1, N, cache_shape_k[-1])
+        #         v_cache_flat = ckv_cache_out.reshape(-1, N, cache_shape_v[-1])
+
+        #         for i in range(min(len(index), B * S)):
+        #             idx = index[i].item()
+        #             if idx < 0:
+        #                 continue
+        #             if idx < k_cache_flat.shape[0]:
+        #                 k_cache_flat[idx, :, :] = k_flat[i, :, :].to(k_cache_flat.dtype)
+        #                 v_cache_flat[idx, :, :] = v_flat[i, :, :].to(v_cache_flat.dtype)
+
+        #         k_cache_out = k_cache_flat.reshape(cache_shape_k)
+        #         ckv_cache_out = v_cache_flat.reshape(cache_shape_v)
+
+        # elif cache_mode == 'PA_NZ':
+        #     if index.dim() == 1:
+        #         block_size = k_cache_out.shape[1]
+        #         dk = k_cache_out.shape[-1]
+        #         dv = ckv_cache_out.shape[-1]
+        #         dk0 = 32 if k_cache_out.dtype == torch.int8 else 16
+        #         dv0 = 32 if ckv_cache_out.dtype == torch.int8 else 16
+        #         dk1 = dk // dk0
+        #         dv1 = dv // dv0
+        #         bn = k_cache_out.shape[0]
+        #         num_head = k_cache_out.shape[2]
+
+        #         k_cache_nz = k_cache_out.reshape(bn, num_head, dk1, block_size, dk0)
+        #         v_cache_nz = ckv_cache_out.reshape(bn, num_head, dv1, block_size, dv0)
+
+        #         k_flat = k_for_cache.reshape(B * S, N, -1)
+        #         v_flat = v_for_cache.reshape(B * S, N, -1)
+
+        #         for i in range(min(len(index), B * S)):
+        #             idx = index[i].item()
+        #             if idx < 0:
+        #                 continue
+        #             bn_id = idx // block_size
+        #             block_offset = idx % block_size
+        #             if bn_id < bn:
+        #                 for d in range(dk1):
+        #                     k_cache_nz[bn_id, :, d, block_offset, :] = k_flat[i, :, d*dk0:(d+1)*dk0].to(k_cache_nz.dtype)
+        #                 for d in range(dv1):
+        #                     v_cache_nz[bn_id, :, d, block_offset, :] = v_flat[i, :, d*dv0:(d+1)*dv0].to(v_cache_nz.dtype)
+
+        #         k_cache_out = k_cache_nz.reshape(k_cache_out.shape)
+        #         ckv_cache_out = v_cache_nz.reshape(ckv_cache_out.shape)
+
+        # elif cache_mode == 'PA_BLK_BNSD':
+        #     if index.dim() == 1:
+        #         block_size = k_cache_out.shape[1]
+        #         ceil_div_s = (S + block_size - 1) // block_size
+
+        #         for batch in range(B):
+        #             for seq_id in range(ceil_div_s):
+        #                 seq_start = seq_id * block_size
+        #                 seq_end = S if seq_id == (ceil_div_s - 1) else (seq_id + 1) * block_size
+        #                 copy_len = seq_end - seq_start
+        #                 idx_pos = batch * ceil_div_s + seq_id
+        #                 if idx_pos >= len(index):
+        #                     continue
+        #                 idx_val = index[idx_pos].item()
+        #                 if idx_val < 0:
+        #                     continue
+        #                 cache_b = idx_val // block_size
+        #                 if cache_b < k_cache_out.shape[0]:
+        #                     k_cache_out[cache_b, :copy_len, :, :] = k_for_cache[batch, seq_start:seq_end, :, :].to(k_cache_out.dtype)
+        #                     ckv_cache_out[cache_b, :copy_len, :, :] = v_for_cache[batch, seq_start:seq_end, :, :].to(ckv_cache_out.dtype)
+
+        # elif cache_mode == 'PA_BLK_NZ':
+        #     if index.dim() == 1:
+        #         block_size = k_cache_out.shape[1]
+        #         dk = k_cache_out.shape[-1]
+        #         dv = ckv_cache_out.shape[-1]
+        #         dk0 = 32 if k_cache_out.dtype == torch.int8 else 16
+        #         dv0 = 32 if ckv_cache_out.dtype == torch.int8 else 16
+        #         dk1 = dk // dk0
+        #         dv1 = dv // dv0
+        #         bn = k_cache_out.shape[0]
+        #         num_head = k_cache_out.shape[2]
+        #         ceil_div_s = (S + block_size - 1) // block_size
+
+        #         k_cache_nz = k_cache_out.reshape(bn, num_head, dk1, block_size, dk0)
+        #         v_cache_nz = ckv_cache_out.reshape(bn, num_head, dv1, block_size, dv0)
+
+        #         for batch in range(B):
+        #             for seq_id in range(ceil_div_s):
+        #                 seq_start = seq_id * block_size
+        #                 seq_end = S if seq_id == (ceil_div_s - 1) else (seq_id + 1) * block_size
+        #                 copy_len = seq_end - seq_start
+        #                 idx_pos = batch * ceil_div_s + seq_id
+        #                 if idx_pos >= len(index):
+        #                     continue
+        #                 idx_val = index[idx_pos].item()
+        #                 if idx_val < 0:
+        #                     continue
+        #                 cache_b = idx_val // block_size
+        #                 if cache_b < bn:
+        #                     for n_idx in range(num_head):
+        #                         for d in range(dk1):
+        #                             k_cache_nz[cache_b, n_idx, d, :copy_len, :] = k_for_cache[batch, seq_start:seq_end, n_idx, d*dk0:(d+1)*dk0].to(k_cache_nz.dtype)
+        #                         for d in range(dv1):
+        #                             v_cache_nz[cache_b, n_idx, d, :copy_len, :] = v_for_cache[batch, seq_start:seq_end, n_idx, d*dv0:(d+1)*dv0].to(v_cache_nz.dtype)
+
+        #         k_cache_out = k_cache_nz.reshape(k_cache_out.shape)
+        #         ckv_cache_out = v_cache_nz.reshape(ckv_cache_out.shape)
+
+        # if is_output_kv:
+        #     k_embed_ret = k_embed_out
+        #     y_ret = v_out
+        # else:
+        #     k_embed_ret = None
+        #     y_ret = None
+
+        # return k_cache_out, ckv_cache_out, k_embed_ret, y_ret
+
+
     def forward(self, kv: torch.Tensor, gamma: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
                 index: torch.Tensor, k_cache: torch.Tensor, ckv_cache: torch.Tensor,
                 k_rope_scale: torch.Tensor = None, c_kv_scale: torch.Tensor = None,

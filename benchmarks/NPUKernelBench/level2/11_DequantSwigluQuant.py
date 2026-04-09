@@ -10,6 +10,69 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
+    # PyTorch native implementation of forward function
+    # def forward(self, x: torch.Tensor, weight_scale: torch.Tensor = None, activation_scale: torch.Tensor = None,
+    #             bias: torch.Tensor = None, quant_scale: torch.Tensor = None, quant_offset: torch.Tensor = None,
+    #             group_index: torch.Tensor = None, activate_left: bool = False, quant_mode: int = 0,
+    #             swiglu_mode: int = 0, clamp_limit: float = 7.0, glu_alpha: float = 1.702,
+    #             glu_bias: float = 1.0) -> tuple:
+    #     # Dequantization
+    #     x_float = x.float()
+
+    #     if weight_scale is not None:
+    #         x_float = x_float * weight_scale.float()
+
+    #     if activation_scale is not None:
+    #         x_float = x_float * activation_scale.float()
+
+    #     if bias is not None:
+    #         x_float = x_float + bias.float()
+
+    #     # Split into two halves for SwiGLU
+    #     out = torch.chunk(x_float, 2, dim=-1)
+
+    #     if activate_left:
+    #         self_tensor = out[0]
+    #         other = out[1]
+    #     else:
+    #         self_tensor = out[1]
+    #         other = out[0]
+
+    #     # SwiGLU activation: F.silu(x) = x * sigmoid(x)
+    #     output = F.silu(self_tensor) * other
+
+    #     # Apply quant_scale: MULTIPLY
+    #     if quant_scale is not None:
+    #         output = output * quant_scale.float()
+
+    #     # Quantization
+    #     scale_dim0 = 1
+    #     for s in x.shape[:-1]:
+    #         scale_dim0 *= s
+
+    #     if quant_mode == 0:  # Static
+    #         if quant_offset is not None:
+    #             output = output + quant_offset.float()
+    #         output = torch.clamp(output, -128, 127)
+    #         quantized_output = torch.round(output).to(torch.int8)
+    #         quant_scales = torch.zeros(scale_dim0, dtype=torch.float32)
+
+    #     elif quant_mode == 1:  # Dynamic
+    #         abs_val = torch.abs(output)
+    #         max_values = torch.amax(abs_val, dim=-1)
+    #         quant_scales = max_values / 127.0
+    #         quant_scales_clamped = torch.clamp(quant_scales, min=1e-10)
+    #         output = output / quant_scales_clamped.unsqueeze(-1)
+    #         output = torch.clamp(output, -128, 127)
+    #         quantized_output = torch.round(output).to(torch.int8)
+    #         quant_scales = quant_scales.reshape(scale_dim0)
+    #     else:
+    #         output = torch.clamp(output, -128, 127)
+    #         quantized_output = torch.round(output).to(torch.int8)
+    #         quant_scales = torch.zeros(scale_dim0, dtype=torch.float32)
+
+    #     return quantized_output, quant_scales
+
     def forward(self, x: torch.Tensor, weight_scale: torch.Tensor = None, activation_scale: torch.Tensor = None,
                 bias: torch.Tensor = None, quant_scale: torch.Tensor = None, quant_offset: torch.Tensor = None,
                 group_index: torch.Tensor = None, activate_left: bool = False, quant_mode: int = 0,
