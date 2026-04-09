@@ -16,8 +16,8 @@
     - [2. 安装与配置](#2-安装与配置)
     - [3. 使用场景指南](#3-使用场景指南)
       - [**3.1 Triton**](#31-triton)
-      - [场景一：单算子生成 (AKG-Triton Agent)](#场景一单算子生成-akg-triton-agent)
-      - [场景二：Benchmark 批量评测 (Benchmark-Evaluator)](#场景二benchmark-批量评测-benchmark-evaluator)
+      - [场景一：单算子生成](#场景一单算子生成)
+      - [场景二：Benchmark 批量评测](#场景二benchmark-批量评测)
       - [**3.2 AscendC**](#32-ascendc)
       - [场景一：单算子生成 (Lingxi-code Agent)](#场景一单算子生成-lingxi-code-agent)
       - [场景二：Benchmark 批量评测 (Ascend-Benchmark-Evaluator)](#场景二benchmark-批量评测-ascend-benchmark-evaluator)
@@ -157,8 +157,8 @@ bash utils/run_benchmark_triton.sh \
 ```bash
 mkdir -p .claude
 mkdir -p .claude/skills
-mv agents/lingxi_code.md .claude/CLAUDE.md
-mv skills/ascend_call_generation/* .claude/skills/
+mv agents/ascend-kernel-developer.md .claude/CLAUDE.md
+mv skills/ascendc/* .claude/skills/
 ```
 
 2. 进入 AscendOpGenAgent 目录，启动 claude：
@@ -185,8 +185,8 @@ claude
 ```bash
 mkdir -p .claude
 mkdir -p .claude/skills
-mv agents/lingxi_code.md .claude/CLAUDE.md
-mv skills/ascend_call_generation/* .claude/skills/
+mv agents/ascend-kernel-developer.md .claude/CLAUDE.md
+mv skills/ascendc/* .claude/skills/
 ```
 
 2. 进入 AscendOpGenAgent 目录，执行批量调度脚本：
@@ -244,7 +244,7 @@ AscendOpGenAgent/
 │   ├── AKG-triton.md           # 主编排 Agent
 │   ├── benchmark-scheduler.md
 │   ├── kernelgen-workflow.md   # 子 Agent（代码生成工作流）
-│   ├── lingxi_code.md
+│   ├── ascend-kernel-developer.md
 │   └── performance-optimizer.md
 ├── benchmarks/                 # 评测数据集存放目录
 │   ├── KernelBench/
@@ -257,7 +257,7 @@ AscendOpGenAgent/
 └── skills/                     # Skill 实现目录
     ├── ascendc_evalution/
     ├── ascend_benchmark_evaluator/
-    ├── ascend_call_generation/
+    ├── ascendc/
     ├── benchmark-evaluator/    # 批量评测 Skill
     ├── dsl_baseline_generation/
     ├── dsl_lowering/

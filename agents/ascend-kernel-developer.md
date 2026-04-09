@@ -49,7 +49,16 @@ Phase 5: 性能分析           (performance-analyzer)
 Phase 6: 全量用例验证
 Phase 7: Trace 记录         (trace-recorder)
 ```
+---
 
+## 关键限制
+
+- 必须将核心计算融合成单个算子实现，不要拆分成多个独立算子。
+- `model_new_tilelang.py` 和 `model_new_ascendc.py` 中禁止使用 torch 算子；只允许进行张量创建，张量变换以及调用你实现的自定义算子。
+- 在 TileLang / AscendC 实现中不能用标量逐元素写法，只能使用 `T.copy`、`T.tile.*`、矩阵/向量原语等块级或向量化操作
+- 只允许修改或新增 `{output_dir}/` 目录中的文件，不要改动其他目录中的文件。
+- 只允许读取当前工作区目录结构内的文件与子目录；禁止读取当前工作区之外的任何路径，包括父目录、兄弟目录、用户目录、绝对路径以及系统其他目录。
+- archive_tasks目录是历史成功任务，可作为参考实现
 ---
 
 ## Phase 0: 参数确认
@@ -99,15 +108,7 @@ Phase 7: Trace 记录         (trace-recorder)
 2. 复制 `{op_file}` 到 `{output_dir}/model.py`
 3. 后续所有操作都在 `{output_dir}/` 目录下进行
 
----
 
-## 关键限制
-
-- 必须将核心计算融合成单个算子实现，不要拆分成多个独立算子。
-- `model_new_tilelang.py` 和 `model_new_ascendc.py` 中禁止使用 torch 算子；只允许进行张量创建，张量变换以及调用你实现的自定义算子。
-- 在 TileLang / AscendC 实现中不能用标量逐元素写法，只能使用 `T.copy`、`T.tile.*`、矩阵/向量原语等块级或向量化操作
-- 只允许修改或新增 `{output_dir}/` 目录中的文件，不要改动其他目录中的文件。
-- 只允许读取当前工作区目录结构内的文件与子目录；禁止读取当前工作区之外的任何路径，包括父目录、兄弟目录、用户目录、绝对路径以及系统其他目录。
 
 ---
 
@@ -211,19 +212,21 @@ Phase 7: Trace 记录         (trace-recorder)
 
 ---
 
-## 输出目录结构
+## 任务目录结构
 
 ```
-{output_dir}/                    # 用户指定的输出目录（如 31_ELU/）
-├── model.py                     # 算子描述文件（精简后）
-├── model.py.bak                 # 原始 model.py 备份
-├── design/                      # TileLang 设计文件
-│   ├── block_level/             # Block-level 设计
-│   └── tile_level/              # Tile-level 设计
-├── kernel/                      # AscendC kernel 实现
-├── model_new_tilelang.py        # TileLang 优化实现
-├── model_new_ascendc.py         # AscendC 优化实现
-└── trace.md                     # 执行 trace 记录
+├── {output_dir}/                   # 用户指定的输出目录（如 31_ELU/）
+|  ├── model.py                     # 算子描述文件（精简后）
+|  ├── model.py.bak                 # 原始 model.py 备份
+|  ├── design/                      # TileLang 设计文件
+|  │   ├── block_level/             # Block-level 设计
+|  │   └── tile_level/              # Tile-level 设计
+|  ├── kernel/                      # AscendC kernel 实现
+|  ├── model_new_tilelang.py        # TileLang 优化实现
+|  ├── model_new_ascendc.py         # AscendC 优化实现
+|  └── trace.md                     # 执行 trace 记录
+├── utils/                # 验证、性能分析等工具，禁止修改
+└── archive_tasks/        # 其他历史任务，可作为参考实现
 ```
 
 **Skill 参考资料**（各 skill 独立维护，位于 `skills/<skill-name>/references/`）：
