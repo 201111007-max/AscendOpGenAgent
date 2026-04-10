@@ -27,9 +27,5 @@ class ModelNew(nn.Module):
         original_shape = x.shape
         x_2d = x.reshape(-1, x.shape[-1]).contiguous()
         gamma_1d = gamma.contiguous()
-        y_2d = _ext.run_rms_norm(
-            x_2d.to(torch.float32),
-            gamma_1d.to(torch.float32),
-            self.eps,
-        )
-        return y_2d.to(x.dtype).reshape(original_shape)
+        y_2d = _ext.run_rms_norm(x_2d, gamma_1d, self.eps)
+        return y_2d.reshape(original_shape)
