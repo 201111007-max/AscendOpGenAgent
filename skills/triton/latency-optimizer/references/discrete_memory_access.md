@@ -1,160 +1,182 @@
----
-name: latency-optimizer
-description: >
-  擅长在 Ascend NPU 平台上编写高效 Triton 算子的性能优化专家。
-  按照严格的顺序逐步优化 Triton 代码，每次只尝试一个优化点，
-  确保优化前后功能一致、精度一致。
-  ⚠️ 只能使用本 skill 规定的优化方式，禁止使用任何超出本 skill 之外的优化方式。
-argument-hint: >
-  输入：code-file-path（代码文件路径）。
-  输出：优化后的 Triton 代码、功能一致性说明、精度一致性说明。
-  固定参数：framework=torch、backend=ascend、dsl=triton_ascend。
----
+# 离散访存优化模式
 
-# Latency Optimizer Skill
+## 概述
 
-<role>
-你是一个擅长在 Ascend NPU 平台上编写高效 Triton 算子的性能优化专家。
-你的任务是按照严格的顺序逐步优化 Triton 代码，每次只尝试一个优化点。
-**必须确保优化前后的功能一致性和精度一致性。**
-**⚠️ 只能使用本 skill 规定的优化方式，禁止使用任何超出本 skill 之外的优化方式。**
-</role>
+在 Triton NPU kernel 中，当线程通过非连续或不可预测的索引向量访问全局内存时，会导致访存效率低下，显著降低带宽利用率。先将整块数据读取到share memory，再取非连续或不可预测的索引可以显著提升计算效率。
 
-## 优化点执行顺序
+## 触发条件
 
-Agent 必须严格按照以下顺序逐一检查优化点，**每次只能尝试一个优化点，命中后参考对应文档**。
+**当代码中存在以下场景时，应考虑应用此优化**：
 
-⚠️ **前置要求**：必须先命中某个优化点的「命中条件」（代码特征满足典型代码特征之一且适用条件成立），才能加载对应的参考文档。未命中则跳过，禁止加载参考文档。
+1. **存在访存语句**：使用了`tl.load`/ `tl.store`读写了全局内存
+2. **访存的索引为随机向量/矩阵**：当且仅当访存地址序列无法被静态解析为连续/步长/分块连续模式时，判定为随机访存，注意如果读取单个索引标量并不会引起离散访存，关于随机性的判定如下：
 
-### 优化点 1：入参静态化优化
+```
+┌─────────────────┬─────────────────────────────────────┬──────────────┐
+│ 索引来源类型     │ 示例代码                              │ 随机性判定   │
+├─────────────────┼─────────────────────────────────────┼──────────────┤
+│ 程序ID线性变换   │ pid * BLOCK + arange                 │ 确定性连续   │
+│                 │ tl.program_id(0) * 256 + tl.arange   │             │
+├─────────────────┼─────────────────────────────────────┼──────────────┤
+│ 循环变量线性     │ for i in range(N): ptr + i * stride  │ 确定性步长   │
+│                 │                                      │             │
+├─────────────────┼─────────────────────────────────────┼──────────────┤
+│ 内存加载值/      │ idx = tl.load(indices_ptr + offset)  │ ⚠️ 潜在随机 │
+│ kernel入参      │ val = tl.load(data_ptr + idx)        │ 需检查来源   │
+└─────────────────┴─────────────────────────────────────┴──────────────┘
+```
 
-**适用条件**：代码中存在可声明为 `tl.constexpr` 的固定参数
+## 实验性优化方法
 
-**典型代码特征**：
+下面的优化方法仅能在特定软件配套版本下成功生效，如果尝试后发生报错请跳转到##基于普通接口的优化方法
+
+### 随机读优化方法
+随机读可以尝试使用`gather_out_to_ub`接口替换，该接口功能为：根据索引张量（index）从全局内存（Global Memory, GM）的源张量（src）采集数据到统一缓冲区（Unified Buffer, UB） 中。该函数输入：
+
+| 参数名             | 类型                        | 是否必填 | 说明                                   |
+| --------------- | ------------------------- | ---- | ------------------------------------ |
+| src             | tl.tensor（指针类型）           | 是    | 全局内存（GM）中的源张量指针，数据将从此张量中采集           |
+| index           | tl.tensor                 | 是    | UB 中的索引，表示待采集的原始索引集合                 |
+| index\_boundary | int64                     | 是    | 索引值的上边界，超过该边界的索引视为越界                 |
+| dim             | int32                     | 是    | 采集操作沿源张量的维度，需满足0 ≤ dim < index.rank  |
+| src\_stride     | Tuple\[int64]             | 是    | 源张量各维度的步长（stride）                    |
+| end\_offset     | Tuple\[int32]             | 是    | 索引张量的每个维度的结束偏移量                      |
+| start\_offset   | Tuple\[int32]             | 是    | 索引张量的每个维度的起始偏移量                      |
+| other           | Optional\[numbers.Number] | 否    | 索引越界时的兜底填充值（标量），默认值为None（需确保越界时显式指定） |
+
+输出：
+* 类型：tensor
+* 形状：形状与 index 一致
+* 数据类型：与源张量相同
+* 内存位置：统一缓冲区（UB）
+
+支持dtype：fp16	fp32 bf16
+Shape 支持：仅支持 1~5维 tensor
+
+特殊限制说明：
+* 维度一致性：src 与index的秩（rank）必须相同。
+* 数据类型限制：src 仅支持 float16、bfloat16、float32 三种浮点类型；index 必须为整数类型张量。
+* 索引张量约束：index 的秩需在 1~5 之间；dim 需为有效维度（0 ≤ dim < index_tile.rank）。
+* 维度尺寸约束：对于非采集维度（i ≠ dim），原始索引张量的尺寸index_shape[i]不得超过源张量对应维度尺寸src.shape[i]。
+* 兜底值约束：other 必须为标量（非张量），若存在越界场景则必须显式指定。
+
+下面是该接口替换tl.load的使用例：
+
+#### 原始代码（随机访存）
+
 ```python
-@triton.jit
-def kernel(A, B, C, M, N,
-            stride_am, stride_an,  # 运行时不变化的固定值
-            BLOCK_SIZE_M: tl.constexpr,
-            BLOCK_SIZE_K: tl.constexpr):
+index = tl.load(index_ptr + y0_local*2 + x1_local, mask) # idx是一个完全无法预测的随机向量
+val = tl.load(src_ptr + index, mask=mask)  # 直接从global中离散访问取数
 ```
 
-**判断逻辑**：
-- 如果代码中存在运行时不变化的固定参数（如 stride、固定数值、BLOCK_SIZE等）未声明为 `tl.constexpr` → 涉及
-- 如果所有固定参数都已正确声明为 `tl.constexpr` → 不涉及，跳过
+#### 优化后代码（整块访存+访存）
 
-**命中条件**：代码特征满足上述典型代码特征之一，且适用条件成立
-
-**参考文档**：`references/constexpr_parameters.md`
-
----
-
-### 优化点 2：Tiling 优化
-
-**适用条件**：处理多维张量（3D 及以上）的规约类（Reduction）或归一化类（Normalization）算子，且规约轴（Reduction Axis）并非内存布局中的最连续轴（通常为最后一维 $N$）。
-
-**典型代码特征**：
 ```python
-@triton.jit
-def kernel(input_ptr, output_ptr, dim1, dim2, ...):
-    # 特征 1：向量化偏移 tl.arange 作用在非连续轴（如 dim1/M 轴）
-    m_offsets = tl.arange(0, BLOCK_SIZE_M)
-    # 特征 2：访存偏移计算中，向量化部分乘上了较大的 stride
-    input_offset = m_offsets * stride_m + n_idx * stride_n
-    # 特征 3：循环内部频繁进行还原操作（如 tl.sum）将向量压缩为标量
-    acc = tl.zeros((BLOCK_SIZE_M,), dtype=tl.float32)
-    ...
-    total_sum = tl.sum(acc, axis=0)
+	# Load index tile to UB
+	index = tl.load(index_ptr + y0_local*2 + x1_local, mask)
+
+	# Call gather_out_to_ub: gather values from src along dim=0
+	val = gather_out_to_ub(
+		src=src_ptr,
+		index=index,
+		index_boundary=4,
+		dim=0,
+		src_stride=(2, 1),
+		end_offset=(2, 2),
+		start_offset=(0, 0)
+	)
 ```
 
-**判断逻辑**：
-- 检查 `tl.load` 的偏移量计算：如果 `tl.arange` 产生的向量偏移量作用于 `stride > 1` 的轴，而存在 `stride = 1` 的轴仅被当作标量索引处理 → 涉及
-- 检查循环累加器：如果累加器在还原轴上分块，但访存模式导致了非连续内存读取 → 涉及
-- 如果 `tl.arange` 已经作用于内存最连续的轴（通常是最后一张量的最后一维），且实现了合并访存 → 不涉及，跳过
+### 随机写优化方法
 
-**命中条件**：代码逻辑旨在对某维度进行还原，但其分块策略导致硬件执行了跨步访存（Strided Access），未能利用硬件向量单元的合并访存特性。
+随机写可以尝试使用`scatter_ub_to_out`接口替换，该接口功能为：将统一缓冲区（Unified Buffer, UB） 中的数值张量（value）根据索引张量（index）沿目标张量的指定维度（dim），分散存储到全局内存（Global Memory, GM）的目标张量（ptr）中。该函数输入：
 
-**参考文档**：`references/tiling_optimization.md`
+| 参数名             | 类型              | 是否必填 | 说明                                   |
+| --------------- | --------------- | ---- | ------------------------------------ |
+| ptr             | tl.tensor（指针类型） | 是    | 全局内存（GM）中的目标张量指针，数据将分散写入此张量中         |
+| value           | tl.tensor       | 是    | UB 中的值，表示待分散写入目标张量的数值集合              |
+| index           | tl.tensor       | 是    | UB 中的索引，表示待分散操作的原始索引集合               |
+| index\_boundary | int64           | 是    | 索引值的上边界，用于索引边界检查，确保分散操作的索引有效性        |
+| dim             | int32           | 是    | 分散操作沿目标张量的维度，需满足0 ≤ dim < index.rank |
+| dst\_stride     | Tuple\[int64]   | 是    | 目标张量各维度的步长（stride）                   |
+| end\_offset     | Tuple\[int32]   | 是    | 索引张量的每个维度的结束偏移量                      |
+| start\_offset   | Tuple\[int32]   | 是    | 索引张量的每个维度的起始偏移量                      |
 
----
+返回值：无返回值
 
-### 优化点 3：BLOCK_SIZE 调优
+支持dtype：fp16	fp32 bf16
+Shape 支持：仅支持 1~5维 tensor
 
-**适用条件**：代码中存在可调整的 BLOCK_SIZE 参数，且 BLOCK_SIZE 未经过充分调优
+特殊限制说明：
+* 维度一致性：ptr、value 与index的秩（rank）必须相同。
+* 数据类型限制：ptr 仅支持 float16、bfloat16、float32 三种浮点类型；index 必须为整数类型张量。
+* 索引张量约束：index 的秩需在 1~5 之间；dim 需为有效维度（0 ≤ dim < index.rank）。
+* 维度尺寸约束：对于非分散维度（i ≠ dim），索引分片的尺寸index.size[i]不得超过目标张量对应维度尺寸ptr.size[i]。
 
-**典型代码特征**：
+下面是该接口替换tl.store的使用例：
+
+#### 原始代码（随机访存）
+
 ```python
-@triton.jit
-def kernel(A, C, M, N,
-            BLOCK_M: tl.constexpr = 128,  # BLOCK_SIZE 可能需要调优
-            BLOCK_N: tl.constexpr = 128):
+index = tl.load(index_ptr + y0_local*2 + x1_local, mask) # offset是一个完全无法预测的随机标量
+tl.store(dst_ptr + index, value)  # 直接从global中离散访问取数
 ```
 
-**判断逻辑**：
-- 如果代码中存在 BLOCK_SIZE 参数（BLOCK_M、BLOCK_N、BLOCK_K 等）且未进行系统性调优 → 涉及
-- 如果 BLOCK_SIZE 已经过充分调优（如通过 benchmark 确定了最优值）→ 不涉及，跳过
+#### 优化后代码（整块访存+访存）
 
-**命中条件**：代码中存在 BLOCK_SIZE 参数，且当前值可能不是最优配置
-
-**参考文档**：`references/block_size_tuning.md`
-
----
-
-### 优化点 4：离散访存优化
-
-**适用条件**：代码的访存语句（tl.load, tl.store）的索引输入包含随机向量
-**典型代码特征**：
 ```python
-@triton.jit
-idx = tl.load(indices_ptr + offset) # idx可能是随机向量
-val = tl.load(data_ptr + idx) # tl.load的索引输入包含随机向量，发生离散读
+	index = tl.load(index_ptr + y0_local*2 + x1_local, mask)
+
+	scatter_ub_to_out(
+		ptr=dst_ptr,
+		value=value,
+		index=index,
+		index_boundary=4,
+		dim=0,
+		dst_stride=(2, 1),
+		end_offset=(2, 2),
+		start_offset=(0, 0)
+	)
 ```
 
-**判断逻辑**：
-- 如果代码的访存语句（tl.load, tl.store）的索引输入包含可能的随机向量或者for循环读写 → 涉及
-- 如果代码的访存语句（tl.load, tl.store）的索引为单次随机标量→ 不涉及，跳过
+### 关键点
 
-**命中条件**：代码特征满足上述典型代码特征，且适用条件成立
+1. **识别无法预测的随机值**：溯源访存命令的索引计算过程，找到是否有随机值风险
+2. **替换优化**：将 `tl.load`的替换为`gather_out_to_ub`，将`tl.store`的替换为`scatter_ub_to_out`
 
-**参考文档**：`references/discrete_memory_access.md`
+## 基于普通接口的优化方法
 
----
+### 原始代码（随机访存）
 
-## 优化流程
-
-```
-1. 按顺序检查优化点 1 → 2 → 3 → 4
-2. 对于当前优化点，先判断是否命中（代码特征满足 + 适用条件成立）：
-   - 未命中 → 跳过，检查下一优化点
-   - 命中 → 参考对应文档，应用优化策略
-3. 应用优化后，必须加载 references/checklist.md 检查代码规范
-4. 如果代码规范不满足 → 修改代码直到满足规范
-5. 代码规范满足后 → 返回优化后的代码
+```python
+offset = tl.load(offset_ptr) # offset是一个完全无法预测的随机标量
+idx = tl.load(idx_ptr + rn * stride_idx) # idx是一个完全无法预测的随机向量
+val = tl.load(x_ptr + offset + idx * stride_x, mask=mask)  # 直接从global中离散访问取数
 ```
 
-**重要约束**：
-- ⚠️ **只能使用本 skill 规定的优化方式，禁止使用任何超出本 skill 之外的优化方式**
-- ⚠️ **必须先命中优化点的「命中条件」，才能加载参考文档；未命中则跳过**
-- 一次优化迭代只能使用一个优化点
-- 一次只能参考一个文档
+### 优化后代码（整块访存+访存）
 
-## 优化验证规则
+```python
+offset = tl.load(offset_ptr) # offset是一个完全无法预测的随机标量
+idx = tl.load(idx_ptr + rn * stride_idx) # idx是一个完全无法预测的随机值向量
+rm = tl.arange(0, M) # rm包含了所有的值，M为x张量的总长度
+x_shared = tl.load(x_ptr + offset_ptr + rm * stride_x) # 将x对应偏移的所有数据从global搬至share
+val = tl.gather(x_shared.to(tl.float16), idx, 0).to(tl.int32)  # 再从share中select目标值，注意数据类型的切换
+```
 
-**⚠️ 强制要求：在进行任何精度验证或性能验证之前，必须先执行 checklist 检查，确保所有代码规范都已满足。验证流程如下：**
+### 关键点
 
-1. **Checklist 检查**：加载 `references/checklist.md`，逐项检查代码是否满足所有规范要求
-2. **不满足规范** → 修改代码直到满足所有规范要求，然后重新执行 checklist 检查确认
-3. **满足规范后** → 执行精度验证和性能验证
+1. **识别无法预测的随机值**：溯源`tl.load`的输入索引计算过程，找到是否有无法预测的随机值，例如被`tl.load`读进来的值
+2. **自动优化**：将 `tl.load`的输入指针中的随机值剔除，改为读取一大块内存（注意不能超过share memory限制），然后使用`tl.gather`输入随机值，得到最终需要取的值
+3. **注意gather的数据类型**：`tl.gather`不支持`int类型`，最好将输入强转成`tl.float16`再执行`tl.gather`,最后再转回原有的数据类型。如果提示精度报错，可以尝试强转成`tl.float32`。
 
-- **成功**：优化后的性能不劣化（speedup ≥ 1.0），该优化结果作为下一次优化迭代的基线
-- **失败**：优化后的性能劣化（speedup < 1.0），放弃本次优化结果，以优化前的代码作为下一次优化迭代的基线
 
-## 参考资料索引
+## 性能收益
 
-| 文档类型 | 文档路径 |
-|----------|----------|
-| 入参静态化优化 | `references/constexpr_parameters.md` |
-| Tiling 优化 | `references/tiling_optimization.md` |
-| BLOCK_SIZE 调优 | `references/block_size_tuning.md` |
-| 离散访存优化 | `references/discrete_memory_access.md` |
-| 代码规范检查 | `references/checklist.md` |
+先将整块数据读取到share memory，再取非连续或不可预测的索引可在 NPU 上获得显著的性能提升。
+
+## 风险提示
+
+| 风险 | 说明 | 缓解措施 |
+|------|------|----------|
+| 精度下降 | `tl.gather`输入强转成`tl.float16`可能会丢失精度 | 尝试将`tl.gather`输入强转成`tl.float32`或者放弃优化 |
