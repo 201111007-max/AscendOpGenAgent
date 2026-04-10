@@ -96,7 +96,7 @@
 | 1 | 14 | 14_Matmul_for_upper_triangular_matrices.py | MatMul | CUBE | Y | 1.5261 | 4.4984 | 1.9458 | 0.34x | 0.77x | ✅ | ✅ | ❌ |
 | 1 | 15 | 15_Matmul_for_lower_triangular_matrices.py | MatMul | CUBE | Y | 1.5271 | 1.6009 | 1.5373 | 0.95x | 0.99x | ✅ | ✅ | ✅ |
 | 1 | 16 | 16_Matmul_with_transposed_A.py | MatMul | CUBE | Y | 1.45 | 1.7231 | 1.7259 | 0.84x | 0.84x | ✅ | ✅ | ✅ |
-| 1 | 17 | 17_Matmul_with_transposed_B.py | MatMul | CUBE | Y | 1.3727 | / | / | / | / | ✅ | ❌ | ❌ |
+| 1 | 17 | 17_Matmul_with_transposed_B.py | MatMul | CUBE | Y | 1.66 | 1.72 | / | 0.96x | / | ✅ | ✅ | ✅ |
 | 1 | 54 | 54_conv_standard_3D__square_input__square_kernel.py | Conv | CUBE | Y | / | / | / | / | / | ✅ | ❌ | ❌ |
 | 1 | 57 | 57_conv_transposed_2D__square_input__square_kernel.py | Conv | CUBE | Y | / | / | / | / | / | ✅ | ❌ | ❌ |
 | 1 | 61 | 61_conv_transposed_3D__square_input__square_kernel.py | Conv | CUBE | Y | / | / | / | / | / | ✅ | ❌ | ❌ |
