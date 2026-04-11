@@ -12,10 +12,10 @@ python utils/build_ascendc.py <task> --clean
 - 在 `<task>/kernel/build/` 下生成临时 CMake 工程并完成编译
 - 不依赖任务目录内的 `run.sh` 或 `CMakeLists.txt`
 
-实现 `model_new_ascendc.py` 后，统一使用 `scripts/evaluate_ascendc.sh` 进行验证：
+实现 `model_new_ascendc.py` 后，统一使用当前 skill 自带的 `references/evaluate_ascendc.sh` 进行验证：
 
 ```bash
-scripts/evaluate_ascendc.sh <task>
+bash <path-to-ascendc-translator>/references/evaluate_ascendc.sh <task>
 ```
 
 该脚本会先调用统一构建器 `utils/build_ascendc.py` 编译 `<task>/kernel/`，再调用 `utils/verification_ascendc.py` 做 reference/candidate 对拍，不再依赖任务目录内的 `run.sh`。

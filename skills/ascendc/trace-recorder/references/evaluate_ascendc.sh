@@ -41,7 +41,7 @@ ASCENDC_CLEAN_BUILD="${ASCENDC_CLEAN_BUILD:-1}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/evaluate_ascendc.sh [task]
+Usage: bash <path-to-trace-recorder>/references/evaluate_ascendc.sh [task]
 
 Arguments:
   task    Task directory to verify. Defaults to current_task.
@@ -60,11 +60,11 @@ Environment overrides:
                              and replaces the remote eval workdir before syncing
 
 Examples:
-  scripts/evaluate_ascendc.sh
-  scripts/evaluate_ascendc.sh current_task
-  REMOTE_EVAL_WORKDIR=workdir_remote_eval_wzz scripts/evaluate_ascendc.sh quant_matmul
-  ASCENDC_SOC_VERSION=Ascend910B3 scripts/evaluate_ascendc.sh current_task
-  ASCENDC_CLEAN_BUILD=1 scripts/evaluate_ascendc.sh matmul_leakyrelu
+  bash <path-to-trace-recorder>/references/evaluate_ascendc.sh
+  bash <path-to-trace-recorder>/references/evaluate_ascendc.sh current_task
+  REMOTE_EVAL_WORKDIR=workdir_remote_eval_wzz bash <path-to-trace-recorder>/references/evaluate_ascendc.sh quant_matmul
+  ASCENDC_SOC_VERSION=Ascend910B3 bash <path-to-trace-recorder>/references/evaluate_ascendc.sh current_task
+  ASCENDC_CLEAN_BUILD=1 bash <path-to-trace-recorder>/references/evaluate_ascendc.sh matmul_leakyrelu
 EOF
 }
 
