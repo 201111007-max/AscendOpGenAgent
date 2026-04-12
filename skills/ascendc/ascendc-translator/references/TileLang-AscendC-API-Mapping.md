@@ -9,12 +9,12 @@
 
 | TileLang API | AscendC API | 备注 |
 | --- | --- | --- |
-| `T.copy(src, dst)` (`GM -> L1`) | `AscendC::DataCopy(...)` | 常见为 `DataCopy(..., Nd2NzParams)`。 |
+| `T.copy(src, dst)` (`GM -> L1`) | `AscendC::DataCopy(...)` | 常见为 `DataCopy(..., Nd2NzParams)`；若目标是 `TQue`，配合 `AllocTensor` 和 `EnQue`。 |
 | `T.copy(src, dst)` (`L1 -> L0A`) | `AscendC::LoadData(...)` / `AscendC::LoadDataWithTranspose(...)` | 是否转置取决于 layout。 |
 | `T.copy(src, dst)` (`L1 -> L0B`) | `AscendC::LoadData(...)` / `AscendC::LoadDataWithTranspose(...)` | 是否转置取决于 layout。 |
 | `T.copy(src, dst)` (`L0C -> GM`) | `AscendC::Fixpipe(...)` |  |
-| `T.copy(src, dst)` (`GM -> UB`) | `AscendC::DataCopyPad(...)` |  |
-| `T.copy(src, dst)` (`UB -> GM`) | `AscendC::DataCopyPad(...)` |  |
+| `T.copy(src, dst)` (`GM -> UB`) | `AscendC::DataCopyPad(...)` | 若目标是 `TQue`，配合 `AllocTensor` 和 `EnQue`；如果是矩阵的二维子 tile，常改用 `DataCopy` + `DataCopyParams`。 |
+| `T.copy(src, dst)` (`UB -> GM`) | `AscendC::DataCopyPad(...)` | 若来源是 `TQue`，配合 `DeQue` 和 `FreeTensor`；如果是写回矩阵的二维子 tile，常改用 `DataCopy` + `DataCopyParams`。 |
 | `T.copy(src, dst)` (`UB -> UB`, same dtype) | `AscendC::DataCopy(...)` |  |
 | `T.copy(src, dst)` (`UB -> UB`, cast dtype) | `AscendC::Cast(...)` |  |
 

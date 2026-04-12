@@ -10,6 +10,7 @@
 
 #include "kernel_common.h"
 #include "rms_norm_tiling.h"
+#include "vector_tile.h"
 
 template <typename dataType>
 class RmsNormSingleRowKernel {
@@ -24,9 +25,9 @@ public:
         if ASCEND_IS_AIV {
             pipe_ = pipe;
             subBlockRows_ = tiling_.blockM / AscendC::GetSubBlockNum();
-            pipe_->InitBuffer(gammaBuf_, RowBytes<dataType>());
-            pipe_->InitBuffer(xInQueue_, 1, RowBytes<dataType>());
-            pipe_->InitBuffer(yOutQueue_, 1, RowBytes<dataType>());
+            pipe_->InitBuffer(gammaBuf_, tiling_.N * sizeof(dataType));
+            pipe_->InitBuffer(xInQueue_, 1, tiling_.N * sizeof(dataType));
+            pipe_->InitBuffer(yOutQueue_, 1, tiling_.N * sizeof(dataType));
             pipe_->InitBuffer(reduceBuf_, tiling_.N * sizeof(float));
             pipe_->InitBuffer(sumBuf_, 16 * sizeof(float));
             if constexpr (!std::is_same_v<dataType, float>) {
@@ -36,7 +37,7 @@ public:
             }
 
             gammaInLocal_ = gammaBuf_.Get<dataType>();
-            CopyGmToUbRow(gammaInLocal_, gammaGM_);
+            LoadGmToUb(gammaInLocal_, gammaGM_, static_cast<uint32_t>(tiling_.N));
             AscendC::PipeBarrier<PIPE_MTE2>();
             AscendC::PipeBarrier<PIPE_ALL>();
             PrepareInputTensor(gammaLocal_, gammaInLocal_, gammaCastBuf_, tiling_.N);
@@ -66,30 +67,9 @@ public:
     }
 
 private:
-    template <typename T>
-    __aicore__ inline uint32_t RowBytes() const
-    {
-        return static_cast<uint32_t>(tiling_.N * sizeof(T));
-    }
-
-    template <typename T>
-    __aicore__ inline void CopyUbToGmRow(AscendC::GlobalTensor<T> dst, AscendC::LocalTensor<T> &src)
-    {
-        AscendC::DataCopyExtParams copyParams{1, RowBytes<T>(), 0, 0, 0};
-        AscendC::DataCopyPad(dst, src, copyParams);
-    }
-
     __aicore__ inline int32_t BlockCount() const
     {
         return (tiling_.M + tiling_.blockM - 1) / tiling_.blockM;
-    }
-
-    template <typename T>
-    __aicore__ inline void CopyGmToUbRow(AscendC::LocalTensor<T> &dst, AscendC::GlobalTensor<T> src)
-    {
-        AscendC::DataCopyExtParams copyParams{1, RowBytes<T>(), 0, 0, 0};
-        AscendC::DataCopyPadExtParams<T> padParams{true, 0, 0, static_cast<T>(0)};
-        AscendC::DataCopyPad(dst, src, copyParams, padParams);
     }
 
     __aicore__ inline AscendC::RoundMode OutputRoundMode() const
@@ -147,7 +127,7 @@ private:
         reduceLocal_ = reduceBuf_.Get<float>();
         sumLocal_ = sumBuf_.Get<float>();
 
-        CopyGmToUbRow(xInLocal_, xGM_[rowIdx * tiling_.N]);
+        LoadGmToUb(xInLocal_, xGM_[rowIdx * tiling_.N], static_cast<uint32_t>(tiling_.N));
         xInQueue_.EnQue(xInLocal_);
 
         xInQueue_.DeQue<dataType>(xInLocal_);
@@ -170,7 +150,7 @@ private:
         yOutQueue_.EnQue(yOutLocal_);
 
         yOutQueue_.DeQue<dataType>(yOutLocal_);
-        CopyUbToGmRow(yGM_[rowIdx * tiling_.N], yOutLocal_);
+        StoreUbToGm(yGM_[rowIdx * tiling_.N], yOutLocal_, static_cast<uint32_t>(tiling_.N));
         yOutQueue_.FreeTensor(yOutLocal_);
     }
 

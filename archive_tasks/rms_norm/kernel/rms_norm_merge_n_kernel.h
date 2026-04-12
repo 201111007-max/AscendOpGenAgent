@@ -10,6 +10,7 @@
 
 #include "kernel_common.h"
 #include "rms_norm_tiling.h"
+#include "vector_tile.h"
 
 template <typename dataType>
 class RmsNormMergeNKernel {
@@ -25,7 +26,7 @@ public:
             pipe_ = pipe;
             subBlockRows_ = tiling_.blockM / AscendC::GetSubBlockNum();
             rowLoops_ = subBlockRows_ / tiling_.rowFactor;
-            pipe_->InitBuffer(gammaBuf_, RowBytes<dataType>());
+            pipe_->InitBuffer(gammaBuf_, tiling_.N * sizeof(dataType));
             pipe_->InitBuffer(xInQueue_, 1, kMergeRowFactor * tiling_.N * sizeof(dataType));
             pipe_->InitBuffer(yOutQueue_, 1, kMergeRowFactor * tiling_.N * sizeof(dataType));
             pipe_->InitBuffer(scaleBuf_, kMergeRowFactor * tiling_.N * sizeof(float));
@@ -47,7 +48,7 @@ public:
             };
 
             gammaInLocal_ = gammaBuf_.Get<dataType>();
-            CopyGmToUbRow(gammaInLocal_, gammaGM_);
+            LoadGmToUb(gammaInLocal_, gammaGM_, static_cast<uint32_t>(tiling_.N));
             AscendC::PipeBarrier<PIPE_MTE2>();
             AscendC::PipeBarrier<PIPE_ALL>();
             PrepareInputTensor(gammaLocal_, gammaInLocal_, gammaCastBuf_, tiling_.N);
@@ -91,30 +92,9 @@ public:
 private:
     static constexpr int kMergeRowFactor = 8;
 
-    template <typename T>
-    __aicore__ inline uint32_t RowBytes() const
-    {
-        return static_cast<uint32_t>(tiling_.N * sizeof(T));
-    }
-
     __aicore__ inline int32_t BlockCount() const
     {
         return (tiling_.M + tiling_.blockM - 1) / tiling_.blockM;
-    }
-
-    template <typename T>
-    __aicore__ inline void CopyGmToUbRow(AscendC::LocalTensor<T> &dst, AscendC::GlobalTensor<T> src)
-    {
-        AscendC::DataCopyExtParams copyParams{1, RowBytes<T>(), 0, 0, 0};
-        AscendC::DataCopyPadExtParams<T> padParams{true, 0, 0, static_cast<T>(0)};
-        AscendC::DataCopyPad(dst, src, copyParams, padParams);
-    }
-
-    template <typename T>
-    __aicore__ inline void CopyUbToGmRow(AscendC::GlobalTensor<T> dst, AscendC::LocalTensor<T> &src)
-    {
-        AscendC::DataCopyExtParams copyParams{1, RowBytes<T>(), 0, 0, 0};
-        AscendC::DataCopyPad(dst, src, copyParams);
     }
 
     template <typename T>
@@ -177,7 +157,7 @@ private:
         sumLocal_ = sumBuf_.Get<float>();
         scaleBroadcastTmpLocal_ = scaleBroadcastTmpBuf_.Get<uint8_t>();
 
-        CopyGmToUbRow(xInLocal_, xGM_[rowIdx * tiling_.N]);
+        LoadGmToUb(xInLocal_, xGM_[rowIdx * tiling_.N], static_cast<uint32_t>(tiling_.N));
         xInQueue_.EnQue(xInLocal_);
 
         xInQueue_.DeQue<dataType>(xInLocal_);
@@ -201,7 +181,7 @@ private:
         yOutQueue_.EnQue(yOutLocal_);
 
         yOutQueue_.DeQue<dataType>(yOutLocal_);
-        CopyUbToGmRow(yGM_[rowIdx * tiling_.N], yOutLocal_);
+        StoreUbToGm(yGM_[rowIdx * tiling_.N], yOutLocal_, static_cast<uint32_t>(tiling_.N));
         yOutQueue_.FreeTensor(yOutLocal_);
     }
 

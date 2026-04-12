@@ -1,4 +1,4 @@
-## 公共工具：跨核同步与 WorkspaceQueue 详细参考
+## 公共工具：Cross Core Sync 与 WorkspaceQueue 详细参考
 
 本文档包含 WorkspaceQueue 环形缓冲区、批量同步模式、CrossCore flag 的完整实现细节与代码示例。
 概览与判断规则见 `@references/dsl2Ascendc.md`。
@@ -6,6 +6,13 @@
 ---
 
 ## 第三章：公共工具
+
+### 0. 同步模式判断规则
+
+| DSL 特征 | 同步模式 | AscendC 实现 |
+|:---|:---|:---|
+| `T.set_cross_flag` 在 n_tile 循环**内部** | 逐 tile 同步（WorkspaceQueue） | 环形缓冲 + 每 tile Acquire/Release |
+| `T.set_cross_flag` 在 n_tile 循环**外部** | 批量同步（Bulk Sync） | 单次 CrossCoreSetFlag/WaitFlag |
 
 ### 1. 通过 Workspace Queue 实现跨核同步
 
@@ -107,7 +114,7 @@ if ASCEND_IS_AIV {
 }
 ```
 
-**与 WorkspaceQueue 环形缓冲的对比**：
+### 2. WorkspaceQueue vs 批量同步对比
 
 | 特性 | WorkspaceQueue（逐 tile 同步） | 批量同步（Bulk Sync） |
 |:---|:---|:---|
@@ -118,10 +125,7 @@ if ASCEND_IS_AIV {
 | **DSL 特征** | `T.set_cross_flag` 在循环内 | `T.set_cross_flag` 在循环外 |
 | **核分配** | BlockScheduler 分配 mBlocks×nBlocks | 每核一个 m_block，Cube 内循环 n_tiles |
 
-> **判断规则**：如果 DSL 中 `T.set_cross_flag` 在 n_tile 循环**外部**，说明是批量同步；在循环**内部**则是逐 tile 同步（WorkspaceQueue）。
-
-
-### 2. CrossCore 同步：单 flag 广播模式
+### 3. CrossCore flag 规则
 
 #### 规则：`T.set_cross_flag` → 单个 CrossCoreSetFlag
 
@@ -159,4 +163,4 @@ for (int i = 0; i < VEC_NUM; i++) {
 **识别口诀**：
 - `T.set_cross_flag("FIX", idx)` → `CrossCoreSetFlag<0x2, PIPE_FIX>(0x8 + idx)`，只调用一次
 - `T.wait_cross_flag(idx)` → `CrossCoreWaitFlag<0x2>(0x8 + idx)`，所有 AIV 子块共享同一 flag
-
+- 批量同步场景用单 flag 广播，**不要**逐 AIV 子块发送不同 flag
