@@ -25,11 +25,13 @@ argument-hint: >
 ```text
 .
 ├── {output_dir}/         # 当前活跃任务目录
+│   ├── model.py          # 参考 PyTorch 模型，禁止修改
+│   ├── <op_name>.json    # 测试用例文件（JSON Lines）
+│   ├── <op_name>.json.bak# 原始 .json 备份
 │   ├── design/           # TileLang DSL 用于表达 kernel 设计
 │   │   ├── block_level/  # TileLang block-level 设计
 │   │   └── tile_level/   # TileLang tile-level 设计，这里有完整可执行的 TileLang kernel
 │   ├── kernel/           # AscendC kernel（本阶段不涉及）
-│   ├── model.py          # 参考 PyTorch 模型，禁止修改
 │   └── model_new_tilelang.py # 你的 TileLang 优化实现，调用 tile_level/ 下的 TileLang kernel
 └── <other_tasks>/        # 其他历史任务，可作为参考实现
 ```

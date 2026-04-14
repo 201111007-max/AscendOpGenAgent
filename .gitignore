@@ -9,3 +9,6 @@ triton_ascend_output
 framework_profile*
 .claude
 output*
+build/
+extra-info/
+*.tar

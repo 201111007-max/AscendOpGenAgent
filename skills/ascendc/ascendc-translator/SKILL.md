@@ -29,11 +29,13 @@ argument-hint: >
 ```text
 .
 ├── {output_dir}/         # 当前活跃任务目录
+│   ├── model.py          # 参考 PyTorch 模型，禁止修改
+│   ├── <op_name>.json    # 测试用例文件（JSON Lines）
+│   ├── <op_name>.json.bak# 原始 .json 备份
 │   ├── design/           # TileLang DSL 用于表达 kernel 设计
 │   │   ├── block_level/  # TileLang block-level 设计（已由上一阶段完成）
 │   │   └── tile_level/   # TileLang tile-level 设计（已由上一阶段完成，作为转译输入）
 │   ├── kernel/           # 你的主要实现位置，放置 AscendC kernel
-│   ├── model.py          # 参考 PyTorch 模型，禁止修改
 │   ├── model_new_tilelang.py # 上一阶段产物，可参考但不要修改
 │   └── model_new_ascendc.py  # 你的 AscendC 优化实现，调用 AscendC kernel
 └── <other_tasks>/        # 其他历史任务，可作为参考实现
