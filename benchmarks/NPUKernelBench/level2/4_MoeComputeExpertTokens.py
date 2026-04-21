@@ -12,13 +12,16 @@ class Model(nn.Module):
 
     def forward(self, sorted_expert_for_source_row, num_expert):
         # sorted_expert_for_source_row: [N] int32 tensor with expert indices
+        #                        MUST be sorted in non-decreasing order by expert index.
         # num_expert: total number of experts
 
-        # Count tokens per expert using bincount
-        expert_tokens = torch.bincount(
+        # Count tokens per expert using bincount, then compute cumulative sum (prefix sum)
+        # output[i] = number of elements <= i = cumulative count of tokens for experts 0..i
+        counts = torch.bincount(
             sorted_expert_for_source_row.long(),
             minlength=num_expert
         ).to(torch.int32)
+        expert_tokens = counts.cumsum(0)
 
         return expert_tokens
     """
@@ -51,8 +54,9 @@ def get_input_groups():
         sorted_expert_info = inputs[0]
         num_expert_info = inputs[1]
         
-        sorted_expert_for_source_row = torch.randint(0, num_expert_info["value"], sorted_expert_info["shape"], dtype=torch.int32)
         num_expert = num_expert_info["value"]
+        unsorted = torch.randint(0, num_expert, sorted_expert_info["shape"], dtype=torch.int32)
+        sorted_expert_for_source_row, _ = torch.sort(unsorted)
         input_groups.append([sorted_expert_for_source_row, num_expert])
     return input_groups
 

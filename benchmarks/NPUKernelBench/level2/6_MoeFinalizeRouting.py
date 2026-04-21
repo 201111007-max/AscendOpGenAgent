@@ -12,7 +12,7 @@ class Model(nn.Module):
 
         def forward(self, expanded_permuted_rows, skip1, skip2, bias, scales,
                     expanded_src_to_dst_row, export_for_source_row, drop_pad_mode=0):
-            # expanded_permuted_rows: [NUM_ROWS*K, H] or [E, C, H] expert outputs
+            # expanded_permuted_rows: [NUM_ROWS*K, H] (non-drop) or [E, C, H] (drop)
             # scales: [NUM_ROWS, K] expert weights
             # expanded_src_to_dst_row: [NUM_ROWS*K] index mapping
             # export_for_source_row: [NUM_ROWS, K] expert assignments
@@ -23,13 +23,16 @@ class Model(nn.Module):
                 K = scales.shape[1]
 
                 # Gather rows according to expanded_src_to_dst_row
-                output = expanded_permuted_rows[expanded_src_to_dst_row.long()]
+                gathered = expanded_permuted_rows[expanded_src_to_dst_row.long()]
 
-                # Reshape to [NUM_ROWS, K, H]
-                output = output.view(NUM_ROWS, K, H)
+                # Reshape depends on column vs row arrangement
+                if drop_pad_mode == 0:  # column arrangement: flat idx = r + k*NUM_ROWS
+                    gathered = gathered.view(K, NUM_ROWS, H).transpose(0, 1)
+                else:  # drop_pad_mode == 2, row arrangement: flat idx = r*K + k
+                    gathered = gathered.view(NUM_ROWS, K, H)
 
                 # Apply scales: [NUM_ROWS, K, 1] * [NUM_ROWS, K, H]
-                output = output * scales.unsqueeze(-1)
+                output = gathered * scales.unsqueeze(-1)
 
                 # Sum over K dimension: [NUM_ROWS, H]
                 output = output.sum(dim=1)
@@ -39,26 +42,24 @@ class Model(nn.Module):
                 NUM_ROWS = scales.shape[0]
                 K = scales.shape[1]
 
-                # Index into expert outputs
-                expert_indices = export_for_source_row  # [NUM_ROWS, K]
-                row_indices = torch.arange(NUM_ROWS, device=expanded_permuted_rows.device)
-
-                # Gather from expanded_permuted_rows
-                output_list = []
-                for k in range(K):
-                    expert_idx = expert_indices[:, k]  # [NUM_ROWS]
-                    scale = scales[:, k:k+1]  # [NUM_ROWS, 1]
-                    # Gather expert output for each row
-                    gathered = expanded_permuted_rows[expert_idx, :, :].diagonal(dim1=0, dim2=1).T
-                    output_list.append(gathered * scale)
-
-                output = sum(output_list)
+                # Use expanded_src_to_dst_row to compute (expert, slot) pairs
+                output = torch.zeros(NUM_ROWS, H, device=expanded_permuted_rows.device,
+                                     dtype=expanded_permuted_rows.dtype)
+                for r in range(NUM_ROWS):
+                    for k in range(K):
+                        if drop_pad_mode == 1:  # column arrangement
+                            flat_idx = expanded_src_to_dst_row[r + k * NUM_ROWS].long()
+                        else:  # drop_pad_mode == 3, row arrangement
+                            flat_idx = expanded_src_to_dst_row[r * K + k].long()
+                        expert = flat_idx // C
+                        slot = flat_idx % C
+                        if 0 <= expert < E and 0 <= slot < C:
+                            output[r] += expanded_permuted_rows[expert, slot] * scales[r, k]
 
             # Add bias if provided
             if bias is not None:
                 # bias: [E, H], need to select based on expert assignment
                 if export_for_source_row is not None:
-                    # Average bias for each row's experts weighted by scales
                     row_bias = torch.zeros(NUM_ROWS, H, device=output.device, dtype=output.dtype)
                     for k in range(K):
                         expert_idx = export_for_source_row[:, k]

@@ -18,33 +18,42 @@ class Model(nn.Module):
 
             original_shape = x.shape
             num_experts = original_shape[-1]
+            batch_size = original_shape[:-1].numel()
 
             # Flatten all but last dimension
             x_flat = x.view(-1, num_experts)  # [B, NUM_EXPERTS]
 
-            # Apply finished mask if provided
-            if finished is not None:
-                finished_flat = finished.view(-1)
-                # Mask finished positions with very negative values
-                x_flat = torch.where(
-                    finished_flat.unsqueeze(-1),
-                    torch.tensor(float('-inf'), device=x.device, dtype=x.dtype),
-                    x_flat
-                )
-
-            # Compute softmax over all experts
+            # Compute softmax over all experts (NO masking for finished rows)
             softmax_output = torch.softmax(x_flat, dim=-1)  # [B, NUM_EXPERTS]
 
-            # Get top-k experts and their indices
+            # Get top-k experts and their softmax values
+            # NOTE: torch.topk tie-breaking order may differ from NPU when
+            # multiple experts have exactly equal softmax values (common with
+            # float16/bfloat16). The selected values and row_idx remain correct.
             topk_values, topk_indices = torch.topk(softmax_output, k, dim=-1)  # [B, k]
+
+            # For finished rows, set indices to num_experts (sentinel value)
+            if finished is not None:
+                finished_flat = finished.view(-1)
+                topk_indices = torch.where(
+                    finished_flat.unsqueeze(-1),
+                    torch.tensor(num_experts, device=x.device, dtype=topk_indices.dtype),
+                    topk_indices
+                )
+
+            # Build row_idx: for each output position, the original row index
+            # For 2D [B, E] with k: row_idx[i, j] = i + j * B
+            row_idx = torch.arange(batch_size, device=x.device).unsqueeze(1).repeat(1, k)
+            offset = torch.arange(k, device=x.device).unsqueeze(0).repeat(batch_size, 1) * batch_size
+            row_idx = row_idx + offset
 
             # Reshape outputs back to original batch dimensions
             output_shape = original_shape[:-1]
-            softmax_output = softmax_output.view(*output_shape, num_experts)
-            topk_indices = topk_indices.view(*output_shape, k)
             topk_values = topk_values.view(*output_shape, k)
+            topk_indices = topk_indices.view(*output_shape, k)
+            row_idx = row_idx.view(*output_shape, k)
 
-            return softmax_output, topk_indices, topk_values
+            return topk_values, topk_indices, row_idx
     """
     def __init__(self):
         super(Model, self).__init__()
