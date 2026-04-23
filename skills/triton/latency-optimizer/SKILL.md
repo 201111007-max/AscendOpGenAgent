@@ -185,7 +185,47 @@ d = a % b   # int 类型取余，退化为标量
 
 ---
 
-### 优化点 6：Pass 合并优化
+### 优化点 6：避免向量API标量降级
+
+**适用条件**：代码中存在可能被编译器降级为标量循环的向量操作，包括通用算术操作、比较操作、扩展乘法、累积操作（cumsum/cumprod）或归约操作（reduce）
+
+**典型代码特征**：
+```python
+# 特征 1：通用算术操作使用 i64，或者满足降级条件
+z = x + y  # x/y 为 i64
+z = x % y  # x/y 为 i32且执行取余计算
+
+# 特征 2：整数比较操作（非 i32 EQ/NE，或非浮点比较）
+mask = x < y  # i8/i16/i32/i64 的 LT/GT/LE/GE 比较
+
+# 特征 3：扩展乘法
+z = x * y  # 触发 vmulext，始终降级
+
+# 特征 4：cumsum/cumprod 在最后一个维度上操作
+x_cumsum = tl.cumsum(x_1d, axis=0)  # 一维张量，或 cumDim 是 lastDim
+
+# 特征 5：reduce 操作在特定条件下
+# i64 类型的 sum/prod/max/min
+# 整数类型的 argmax/argmin
+# 浮点类型 argmax/argmin 且 flatten 后维度 > 2
+```
+
+**判断逻辑**：
+- 检查通用算术操作（add/sub/mul/min/max/abs/shl/shr/interleave/deinterleave）：如果数据类型为 i64
+- 检查比较操作：如果数据类型为 i8/i16/i64（所有比较），或 i32 的 LT/GT/LE/GE → 涉及
+- 检查取余操作：如果数据类型是任何int类型 → 涉及
+- 检查扩展乘法（vmulext）：任何扩展乘法 → 涉及
+- 检查 cumsum/cumprod：如果累积维度是输入张量的最后一个维度（一维时 axis=0 即最后维度），或数据类型为 i64 → 涉及
+- 检查 reduce 操作：如果是 i64 类型的 sum/prod/max/min；整数类型的 argmax/argmin；浮点类型 argmax/argmin 且 flatten 后维度 > 2 → 涉及
+- 如果以上情况均不存在 → 不涉及，跳过
+
+**命中条件**：代码中存在上述任一向量操作，且满足对应的标量降级条件
+
+**参考文档**：`references/avoid_scalar_lowering.md`
+
+---
+
+### 优化点 7：Pass 合并优化
 
 **适用条件**：代码中存在多次遍历相同数据计算不同统计量
 
@@ -219,7 +259,7 @@ for ...:
 
 ---
 
-### 优化点 7：维度合并优化
+### 优化点 8：维度合并优化
 
 **适用条件**：代码中存在多层嵌套循环处理连续维度，且维度间无依赖关系
 
@@ -246,7 +286,7 @@ for n in range(N):           # 64 次
 
 ---
 
-### 优化点 8：Libdevice 函数使用
+### 优化点 9：Libdevice 函数使用
 
 **适用条件**：代码中存在手动实现的数学函数，而 `tl.extra.cann.libdevice` 中已有优化版本
 
@@ -272,7 +312,7 @@ out = tl.maximum(x, 0.0)
 
 ---
 
-### 优化点 9：循环不变量外提
+### 优化点 10：循环不变量外提
 
 **适用条件**：代码中存在嵌套循环，且内层循环中有只依赖外层变量的 `tl.load`
 
@@ -305,7 +345,7 @@ for block in range(num_blocks):
 
 ---
 
-### 优化点 10：Load 指令重排序
+### 优化点 11：Load 指令重排序
 
 **适用条件**：代码中存在循环，且循环内有多个 `tl.load` 和 `tl.store`，存在数据依赖导致的阻塞
 
@@ -340,7 +380,7 @@ for i in range(HEAD_NUM):
 
 ---
 
-### 优化点 11：Autotune 自动调优
+### 优化点 12：Autotune 自动调优
 
 **适用条件**：代码中存在一个或者多个可调参数（例如BLOCK_SIZE、BLOCK_M等），且这些参数未经过充分调优，考虑到其他优化点可能引入可调超参数，最后再优化该优化点
 
@@ -369,7 +409,7 @@ kernel[grid](..., BLOCK_M=128, BLOCK_N=128)
 
 ## 优化流程
 ```
-1. 按顺序检查优化点 1 → 2 → 3 → ... → 11
+1. 按顺序检查优化点 1 → 2 → 3 → ... → 12
 2. 对于当前优化点，先判断是否命中（代码特征满足 + 适用条件成立）：
    - 未命中 → 跳过，检查下一优化点
    - 命中 → 参考对应文档，应用优化策略
@@ -411,6 +451,7 @@ kernel[grid](..., BLOCK_M=128, BLOCK_N=128)
 | 分核优化 | `references/vector_core_partition.md` |
 | 离散访存优化 | `references/discrete_memory_access.md` |
 | Scalar 转 Vector 优化 | `references/scalar_to_vector.md` |
+| 避免向量API标量降级 | `references/avoid_scalar_lowering.md` |
 | Pass 合并优化 | `references/pass-merge.md` |
 | 维度合并优化 | `references/dimension-merge.md` |
 | Libdevice 函数使用 | `references/libdevice-usage.md` |

@@ -24,6 +24,8 @@ argument-hint: >
 - 只允许修改或新增 `{output_dir}/` 目录中的文件，不要改动其他目录中的文件。
 - 只允许读取当前工作区目录结构内的文件与子目录；禁止读取当前工作区之外的任何路径，包括父目录、兄弟目录、用户目录、绝对路径以及系统其他目录。
 - 禁止读取 `@references/TileLangAscendProgrammingGuide.md`；该文档是 TileLang 编程指南，仅供 TileLang 阶段使用，与本阶段无关。
+- 严格按照算子描述生成kernel，ascend c kernel的功能应该和标杆完全一致，不能出现部分功能使用ascend c，部分使用torch算子的情况
+- 即使测试用例中不包含某个功能或者分支对应的case，也要生成对应的ascend c kernel代码
 
 ## 任务目录结构
 ```text
