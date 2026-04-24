@@ -50,7 +50,7 @@ argument-hint: >
 2. **执行性能测试**
    调用 `@references/performance.py` 脚本进行性能测试。默认对比 `reference` 和 `ascendc`；只有在用户明确要求时才额外纳入 `tilelang`：
    ```bash
-   python3 @references/performance.py {output_dir}
+   python3 @references/performance.py --output_dir {output_dir} --output {output_dir}
    ```
    默认必须测试：reference（baseline）、ascendc
 
@@ -59,6 +59,7 @@ argument-hint: >
    - 每种实现的平均耗时
    - 相对于参考实现的加速比
    - TileLang vs AscendC 的对比（仅在两者都被实际测试时提供）
+   - 输出`preformance.json`，用于记录每个case的加速比
 
 ## 输出格式
 
