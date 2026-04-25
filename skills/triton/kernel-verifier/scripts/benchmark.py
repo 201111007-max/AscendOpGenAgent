@@ -629,6 +629,92 @@ def result_to_dict(result: BenchmarkResult) -> Dict[str, Any]:
 # 命令行入口
 # ============================================================================
 
+VERIFY_GATE_FAILURES_TO_PRINT = 5
+
+
+def resolve_verify_json_name(triton_impl_name: str) -> str:
+    """按 impl_name 推导 verify_result json 文件名。
+
+    - triton_ascend_impl（默认）→ verify_result.json（Phase 3）
+    - triton_baseline / triton_optimized → verify_result_{suffix}.json（Phase 4）
+    - 其他自定义名 → verify_result_{name 去掉 triton_ 前缀}.json
+    """
+    if triton_impl_name == TRITON_IMPL_NAME_DEFAULT:
+        return "verify_result.json"
+    suffix = triton_impl_name
+    if suffix.startswith("triton_"):
+        suffix = suffix[len("triton_"):]
+    return f"verify_result_{suffix}.json"
+
+
+def check_verify_gate(verify_dir: str, triton_impl_name: str) -> None:
+    """L1 闸门：benchmark 启动前必须确认对应 verify_result 全过。
+
+    不通过时直接 exit 2，stderr 打印路径 / 计数 / failures 摘要，
+    便于上游 agent 把错误等价映射到 verify 失败处理路径。
+    """
+    verify_json_name = resolve_verify_json_name(triton_impl_name)
+    verify_json_path = os.path.join(verify_dir, verify_json_name)
+
+    if not os.path.isfile(verify_json_path):
+        print(
+            f"[L1 闸门] 拒绝执行 benchmark：未找到 verify_result 文件\n"
+            f"  expected: {verify_json_path}\n"
+            f"  triton_impl_name: {triton_impl_name}\n"
+            f"  请先运行 verify.py，或在确实不需要精度校验的场景下传 --verify_not_required",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    try:
+        with open(verify_json_path, "r", encoding="utf-8") as f:
+            verify_data = json.load(f)
+    except Exception as e:
+        print(
+            f"[L1 闸门] 拒绝执行 benchmark：verify_result 文件读取失败\n"
+            f"  path: {verify_json_path}\n"
+            f"  error: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    total = verify_data.get("total_cases", 0)
+    passed = verify_data.get("passed_cases", 0)
+    failures = verify_data.get("failures", []) or []
+
+    if total == 0:
+        print(
+            f"[L1 闸门] 拒绝执行 benchmark：verify_result 中 total_cases=0\n"
+            f"  path: {verify_json_path}\n"
+            f"  说明 verify.py 未实际跑任何 shape，benchmark 无意义",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if passed != total:
+        print(
+            f"[L1 闸门] 拒绝执行 benchmark：精度校验未全通过\n"
+            f"  path: {verify_json_path}\n"
+            f"  passed_cases: {passed}/{total}\n"
+            f"  triton_impl_name: {triton_impl_name}",
+            file=sys.stderr,
+        )
+        if failures:
+            print(
+                f"  前 {min(VERIFY_GATE_FAILURES_TO_PRINT, len(failures))} "
+                f"条 failures（共 {len(failures)} 条）：",
+                file=sys.stderr,
+            )
+            for f_item in failures[:VERIFY_GATE_FAILURES_TO_PRINT]:
+                print(
+                    f"    - case_idx={f_item.get('case_idx')} "
+                    f"error_type={f_item.get('error_type')} "
+                    f"input_desc={f_item.get('input_desc')}",
+                    file=sys.stderr,
+                )
+        sys.exit(2)
+
+
 def main():
     parser = argparse.ArgumentParser(description="性能测试脚本")
     parser.add_argument("--op_name", required=True, help="算子名称")
@@ -642,12 +728,23 @@ def main():
                        help="跳过 framework 性能测试（GPU Kernel 模式使用）")
     parser.add_argument("--framework_latency_ms", type=float, default=0.0,
                        help="预设的 framework 参考延迟（毫秒），用于计算 speedup")
+    parser.add_argument("--verify_not_required", action="store_true",
+                       help="跳过 L1 verify 闸门（默认强制要求 verify_result 全过）")
     args = parser.parse_args()
 
     verify_dir = os.path.abspath(args.verify_dir)
     if not os.path.isdir(verify_dir):
         print(f"错误: 验证目录不存在: {verify_dir}", file=sys.stderr)
         sys.exit(1)
+
+    if args.verify_not_required:
+        print(
+            f"[L1 闸门] 已通过 --verify_not_required 跳过 verify 闸门检查 "
+            f"(triton_impl_name={args.triton_impl_name})",
+            file=sys.stderr,
+        )
+    else:
+        check_verify_gate(verify_dir, args.triton_impl_name)
 
     config = BenchmarkConfig(
         op_name=args.op_name,
