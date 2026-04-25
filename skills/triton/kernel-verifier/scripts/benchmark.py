@@ -242,7 +242,7 @@ def _parse_with_count(df: Any, profile_path: str, active_count: int) -> Tuple[Op
     return operator_avg_times, round(total_avg_ms, 4)
 
 
-def run_profiler_with_config(test_fn: callable, warmup: int, repeats: int, profile_name: str) -> str:
+def run_profiler_with_config(test_fn: callable, warmup: int, active: int, profile_name: str) -> str:
     """运行NPU profiler并返回生成的性能分析目录路径。"""
     import torch
     import torch_npu
@@ -260,7 +260,8 @@ def run_profiler_with_config(test_fn: callable, warmup: int, repeats: int, profi
     torch.npu.synchronize()
     
     skip_first = 1 + warmup
-    total_steps = skip_first + repeats
+    repeat = 1
+    total_steps = skip_first + (warmup + active) * repeat
     
     # 生成唯一的profile路径
     timestamp = int(time.time() * 1000)
@@ -273,7 +274,7 @@ def run_profiler_with_config(test_fn: callable, warmup: int, repeats: int, profi
             torch_npu.profiler.ProfilerActivity.CPU
         ],
         schedule=torch_npu.profiler.schedule(
-            wait=0, warmup=warmup, active=repeats, repeat=1, skip_first=skip_first
+            wait=0, warmup=warmup, active=active, repeat=repeat, skip_first=skip_first
         ),
         on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(profile_path),
         record_shapes=False,
@@ -309,20 +310,16 @@ def measure_single(
     # 准备测试函数
     test_fn = prepare_model_fn(model, inputs, device)
 
-    try:
-        # 运行profiler
-        profile_path = run_profiler_with_config(test_fn, warmup, repeats, profile_name)
+    # 运行profiler
+    profile_path = run_profiler_with_config(test_fn, warmup, repeats, profile_name)
 
-        # 解析结果
-        operators, latency_ms = parse_operator_latency(profile_path, repeats)
-    except Exception as e:
-        print(f"torch_npu.profiler 获取数据失败: {e}，使用兜底测试机制...")
-        operators, latency_ms = None, None
+    # 解析结果
+    operators, latency_ms = parse_operator_latency(profile_path, repeats)
 
-    # 如果profiler获取不到数据或时延为0/无效，使用兜底机制
+    # 如果profiler获取不到数据或时延为0/无效，记录为NaN
     if operators is None or latency_ms is None or latency_ms <= 0.0001:
-        print(f"警告: profiler 无法获取有效时延数据（当前:{latency_ms} ms），将使用 time.perf_counter() 进行兜底测试...")
-        return measure_single_fallback(model, inputs, warmup, repeats, device)
+        print(f"警告: profiler 无法获取有效时延数据，记录为 NaN")
+        return {}, float('nan'), float('nan')
 
     # 获取峰值内存
     peak_memory = torch.npu.max_memory_allocated() / (1024 * 1024)
@@ -330,44 +327,7 @@ def measure_single(
     return operators, latency_ms, round(peak_memory, 2)
 
 
-def measure_single_fallback(
-        model: Any,
-        inputs: List[Any],
-        warmup: int,
-        repeats: int,
-        device: Any
-) -> Tuple[Optional[Dict[str, float]], Optional[float], float]:
-    """使用time.perf_counter()的兜底测试机制"""
-    import torch
-    import torch_npu
-    import time
-    import statistics
 
-    # 执行warmup
-    with torch.no_grad():
-        for _ in range(warmup):
-            _ = model(*inputs)
-    torch.npu.synchronize()
-
-    # 正式测试
-    latencies = []
-    for _ in range(repeats):
-        torch.npu.synchronize()
-        start = time.perf_counter()
-        with torch.no_grad():
-            _ = model(*inputs)
-        torch.npu.synchronize()
-        end = time.perf_counter()
-        latencies.append((end - start) * 1000)  # 转换为毫秒
-
-    # 计算平均时延
-    avg_latency_ms = statistics.mean(latencies)
-
-    # 获取峰值内存
-    peak_memory = torch.npu.max_memory_allocated() / (1024 * 1024)
-
-    # 兜底机制不获取算子级别的时延，返回空字典
-    return {}, round(avg_latency_ms, 4), round(peak_memory, 2)
 
 
 # ============================================================================
@@ -437,30 +397,37 @@ def run_single_benchmark(
         f"impl_profile_case{case_idx}", device
     )
     
-    if (not config.skip_framework and framework_latency_ms is None) or impl_latency_ms is None:
-        raise RuntimeError(
-            f"[用例 {case_idx}/{total_cases}] 无法从 profiler 提取有效时延数据"
-        )
+    # 计算speedup，处理NaN情况
+    if config.skip_framework:
+        # 跳过framework测试时，使用预设值或无法计算时标记为NaN
+        speedup = float('nan')
+    elif framework_latency_ms != framework_latency_ms or impl_latency_ms != impl_latency_ms:
+        # 任一值为NaN时，speedup为NaN (NaN != NaN 是True)
+        speedup = float('nan')
+    elif impl_latency_ms > 0 and framework_latency_ms > 0:
+        speedup = framework_latency_ms / impl_latency_ms
+    else:
+        speedup = 0.0
     
-    speedup = (
-        framework_latency_ms / impl_latency_ms 
-        if impl_latency_ms > 0 and framework_latency_ms > 0 
-        else 0
-    )
+    # 处理NaN值的round函数
+    def safe_round(value, digits):
+        if value != value:  # NaN判断
+            return value
+        return round(value, digits)
     
     return SingleShapeResult(
         shape=get_main_shape(inputs),
         framework=PerformanceResult(
-            avg_latency_ms=round(framework_latency_ms, 4),
-            peak_memory_mb=round(framework_peak_memory, 2),
+            avg_latency_ms=safe_round(framework_latency_ms, 4),
+            peak_memory_mb=safe_round(framework_peak_memory, 2),
             operators=framework_operators or {}
         ),
         implementation=PerformanceResult(
-            avg_latency_ms=round(impl_latency_ms, 4),
-            peak_memory_mb=round(impl_peak_memory, 2),
+            avg_latency_ms=safe_round(impl_latency_ms, 4),
+            peak_memory_mb=safe_round(impl_peak_memory, 2),
             operators=impl_operators or {}
         ),
-        speedup_vs_torch=round(speedup, 4)
+        speedup_vs_torch=safe_round(speedup, 4)
     )
 
 
@@ -472,7 +439,7 @@ def compute_overall_average(results: List[SingleShapeResult]) -> Tuple[Performan
     Returns:
         (avg_framework, avg_implementation, avg_speedup)
     """
-    import statistics
+    import math
     
     if not results:
         raise RuntimeError("没有有效的测试结果")
@@ -480,7 +447,24 @@ def compute_overall_average(results: List[SingleShapeResult]) -> Tuple[Performan
     if len(results) == 1:
         return results[0].framework, results[0].implementation, results[0].speedup_vs_torch
     
-    # 计算平均值
+    # 处理包含NaN的列表求平均值
+    def mean_with_nan(values):
+        # 如果所有值都是NaN，返回NaN
+        if all(math.isnan(v) for v in values):
+            return float('nan')
+        # 过滤NaN后计算平均值
+        valid_values = [v for v in values if not math.isnan(v)]
+        if not valid_values:
+            return float('nan')
+        return sum(valid_values) / len(valid_values)
+    
+    # 安全地round，处理NaN情况
+    def safe_round(value, digits):
+        if isinstance(value, float) and math.isnan(value):
+            return value
+        return round(value, digits)
+    
+    # 计算平均值（支持含NaN的列表）
     fw_latencies = [r.framework.avg_latency_ms for r in results]
     impl_latencies = [r.implementation.avg_latency_ms for r in results]
     fw_memories = [r.framework.peak_memory_mb for r in results]
@@ -500,16 +484,16 @@ def compute_overall_average(results: List[SingleShapeResult]) -> Tuple[Performan
     
     return (
         PerformanceResult(
-            avg_latency_ms=round(statistics.mean(fw_latencies), 4),
-            peak_memory_mb=round(statistics.mean(fw_memories), 2),
-            operators={k: round(v / n, 4) for k, v in fw_ops.items()}
+            avg_latency_ms=safe_round(mean_with_nan(fw_latencies), 4),
+            peak_memory_mb=safe_round(mean_with_nan(fw_memories), 2),
+            operators={k: safe_round(v / n, 4) for k, v in fw_ops.items()}
         ),
         PerformanceResult(
-            avg_latency_ms=round(statistics.mean(impl_latencies), 4),
-            peak_memory_mb=round(statistics.mean(impl_memories), 2),
-            operators={k: round(v / n, 4) for k, v in impl_ops.items()}
+            avg_latency_ms=safe_round(mean_with_nan(impl_latencies), 4),
+            peak_memory_mb=safe_round(mean_with_nan(impl_memories), 2),
+            operators={k: safe_round(v / n, 4) for k, v in impl_ops.items()}
         ),
-        round(statistics.mean(speedups), 4)
+        safe_round(mean_with_nan(speedups), 4)
     )
 
 
