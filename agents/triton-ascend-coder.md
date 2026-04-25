@@ -253,16 +253,16 @@ while iteration < max_iterations:
     产物 → {工作目录}/output/iter_{iteration}/perf_result.json
     复制 → {工作目录}/output/perf_result.json
 
-    **多 shape 全量执行 + 延时加权聚合**：
+    **多 shape 全量执行 + 几何平均聚合**：
     - benchmark.py 为每个 shape 独立 try/except，全部跑完后写 JSON；exit 恒为 0（除非脚本崩溃）。
     - 顶层汇总字段：
       - `total_cases` / `passed_cases` / `failed_cases`
+      - `nan_indices` / `inf_indices` / `zero_indices` / `negative_indices` / `none_indices`：异常 `s_i` 的 case_idx 列表（异常 shape 仍计入 `passed_cases`，但不进入几何平均）
       - `framework.avg_latency_ms` / `implementation.avg_latency_ms`（各 shape 延时的算术平均，保留兼容语义）
-      - `total_framework_latency_ms` / `total_implementation_latency_ms`（仅通过 shape 求和）
-      - `speedup_vs_torch` = **sum(framework) / sum(impl)**（延时加权；仅对 status=="pass" 的 shape 求和）
+      - `speedup_vs_torch` = **几何平均** = `(∏ s_i)^(1/n)`（仅对 status=="pass" 且 `s_i` 为有限正数的 shape）；全部异常时为 `null`
     - 明细字段 `per_shape_results[]` 保留全量（含失败用例），每项带 `status: "pass"|"fail"`、
-      通过时 `framework/implementation/speedup_vs_torch`，失败时 `error_type/error_msg`。
-    - 报告输出时显示：顶部汇总（含通过率+延时加权加速比）+ 每个 shape 明细表格（含 status 列）。
+      通过时 `framework/implementation/speedup_vs_torch`（异常时为 null），失败时 `error_type/error_msg`。
+    - 报告输出时显示：顶部汇总（含通过率+几何平均加速比+异常索引）+ 每个 shape 明细表格（含 status 列）。
     - 策略 A 下 Phase 3.5 由于前置条件保证 passed_cases == total_cases，因此 benchmark 不会混入失败 shape。
 
     记录 perf_data（包含汇总指标和 shape 明细），break
@@ -420,40 +420,42 @@ while True:
 
       ⚠️ 基线代码等于 Phase 3 产出的 generated_code.py，Phase 3.5 已完成过完整
       benchmark，再跑一次只会得到等价结果并消耗时间。perf_result.json 内容中不含
-      `triton_impl_name` 字段，原样复制即可；下游判定仅依赖 `total_implementation_latency_ms`
-      等数值字段，不关心文件名前缀。
+      `triton_impl_name` 字段，原样复制即可；下游判定仅依赖 `speedup_vs_torch`
+      （几何平均加速比），不关心文件名前缀。
 
     **GPU Kernel 模式**：优化侧 benchmark 仍需附加 `--skip_framework --framework_latency_ms <gpu_reference_ms>`，其中 `gpu_reference_ms` 从 `vllm_gpu_perf.csv` 读取并转换为毫秒。非 GPU 模式保持原样。基线侧因为是复制 Phase 3 结果，天然继承 Phase 3 时的参数配置，无需额外处理。
 
     优化侧: benchmark.py --triton_impl_name triton_optimized [--skip_framework ...]
       → optimized_perf_result.json
 
-    **延时加权判定（sum ratio）**：
-    从 perf_result.json 读取 `total_implementation_latency_ms`，即所有通过 shape
-    延时之和（单 shape 场景等同于单值）：
+    **几何平均加速比判定（geomean ratio）**：
+    从 perf_result.json 读取 `speedup_vs_torch`，即各通过 shape 加速比的几何平均
+    （异常 shape 不计入）。直接对比 Phase 3 与 Phase 4 的几何平均加速比：
 
     ```
-    baseline_total  = baseline_data["total_implementation_latency_ms"]
-    optimized_total = optimized_data["total_implementation_latency_ms"]
-    speedup_vs_baseline = baseline_total / optimized_total
+    baseline_speedup  = baseline_data["speedup_vs_torch"]   # Phase 3 几何平均
+    optimized_speedup = optimized_data["speedup_vs_torch"]  # Phase 4 几何平均
     ```
 
     策略 A 下 4.2 已保证 optimized 侧 passed == total，baseline 来自 Phase 3 同样 passed == total，
-    集合相同，可直接相除。若出现集合不一致（兼容路径），应直接判优化失败，不写入比较数值。
+    集合相同，可直接对比。若出现集合不一致（兼容路径），应直接判优化失败，不写入比较数值。
     
     ── 4.4 结果判定 ──────────────────────────────────
-    **前置检查**：若 `opt_iter_{opt_iteration}/optimized_perf_result.json` 不存在
-    或读取失败（通常意味着 4.3 被 L1 拒绝、benchmark 未实际产出 JSON），跳过本步骤
-    直接进入 4.5（A 类分析），不得写入任何 speedup 数值。
+    **前置检查**：
+    - 若 `opt_iter_{opt_iteration}/optimized_perf_result.json` 不存在或读取失败
+      （通常意味着 4.3 被 L1 拒绝、benchmark 未实际产出 JSON），跳过本步骤直接
+      进入 4.5（A 类分析），不得写入任何 speedup 数值。
+    - 若 `baseline_speedup` 或 `optimized_speedup` 任一为 `null`（全部 shape 异常，
+      无几何平均可算），直接判定为优化失败（拒绝优化），跳到 4.5 A 类分析。
 
-    speedup_vs_baseline ≥ 1.0:
-      → 优化成功（性能不劣化即视为成功）
+    optimized_speedup > baseline_speedup:
+      → 优化成功（几何平均加速比有提升）
       → 更新 best_code / best_speedup
       → improvement_made = true
       → opt_iteration++，continue
 
-    否则:
-      → opt_iteration++，continue
+    否则（含相等）:
+      → 视为无提升，opt_iteration++，continue
 
     ── 4.5 分析决策 (验证失败时) ─────────────────────
     A 类 (优化引入逻辑错误) → 回退，调整策略，continue
@@ -515,8 +517,10 @@ while True:
 **字段取值口径（强制）**：
 - `perf_data.passed_cases` / `failed_cases` / `total_cases` 必须从
   **`output/iter_{phase3_last_iter}/verify/verify_result.json`** 读取（精度通过数）
-- 延时类字段（`total_*_latency_ms` / `avg_latency_ms` / `speedup_vs_torch` / `speedup_vs_baseline`）
+- 延时类字段（`avg_latency_ms` / `speedup_vs_torch` / `speedup_vs_baseline`）
   从 perf_result.json 读取（Phase 4 成功时优先 `optimized_perf_result.json`）
+- 异常索引字段（`nan_indices` / `inf_indices` / `zero_indices` / `negative_indices` / `none_indices`）
+  从 perf_result.json 同名字段透传
 - `per_shape_results[].status` 以 verify 为准；`speedup_vs_torch` 等延时字段仅对 verify 通过的 shape 填充
 - ⚠️ **禁止**直接把 perf_result.json 顶层 passed_cases 复制到 summary —— perf 的 pass 仅代表 benchmark 进程未崩溃，与精度无关
 
@@ -531,13 +535,16 @@ while True:
   "skill_path": ".claude/skills/kernel-verifier",
   "perf_data": {
     "avg_latency_ms": 0.5678,
-    "total_framework_latency_ms": 54.8,
-    "total_implementation_latency_ms": 25.2,
     "speedup_vs_torch": 2.1746,
     "speedup_vs_baseline": 1.35,
     "total_cases": 5,
     "passed_cases": 5,
     "failed_cases": 0,
+    "nan_indices": [],
+    "inf_indices": [],
+    "zero_indices": [],
+    "negative_indices": [],
+    "none_indices": [],
     "per_shape_results": [
       {"case_idx": 1, "status": "pass", "shape_desc": "...", "speedup_vs_torch": 1.8200},
       {"case_idx": 2, "status": "pass", "shape_desc": "...", "speedup_vs_torch": 2.1500},
@@ -548,9 +555,10 @@ while True:
 ```
 
 **字段说明**：
-- `speedup_vs_torch`: **延时加权**聚合 = `total_framework_latency_ms / total_implementation_latency_ms`（仅对通过 shape 求和）
+- `speedup_vs_torch`: **几何平均**聚合 = `(∏ s_i)^(1/n)`（仅对通过且 `s_i` 为有限正数的 shape）；全部异常时为 `null`
+- `speedup_vs_baseline`: Phase 4 时 = `optimized.speedup_vs_torch / baseline.speedup_vs_torch`（两个几何平均之比）
 - `passed_cases` / `failed_cases`: 多 shape 时的通过 / 失败计数（策略 A 成功时应为 total / 0）
-- `total_framework_latency_ms` / `total_implementation_latency_ms`: 所有通过 shape 延时之和
+- `*_indices`: 五类异常 `s_i` 的 case_idx 列表，无异常时为 `[]`
 
 **GPU Kernel 模式扩展格式**（向后兼容）：
 ```json
