@@ -47,7 +47,7 @@ def get_input_groups():
         }
         dtype = dtype_map[x_info["dtype"]]
         
-        x = torch.randn(x_info["shape"], dtype=dtype)
+        x = torch.randn(x_info["shape"], dtype=dtype) + torch.ones(x_info["shape"], dtype=dtype)
         dim = dim_info["value"]
         keepdim = keepdim_info["value"]
         input_groups.append([x, dim, keepdim])
