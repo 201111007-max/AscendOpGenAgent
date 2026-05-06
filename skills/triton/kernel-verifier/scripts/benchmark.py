@@ -268,7 +268,7 @@ def _parse_with_count(df: Any, profile_path: str, active_count: int) -> Tuple[Op
     return operator_avg_times, round(total_avg_ms, 4)
 
 
-def run_profiler_with_config(test_fn: callable, warmup: int, repeats: int, profile_name: str) -> str:
+def run_profiler_with_config(test_fn: callable, warmup: int, active: int, profile_name: str) -> str:
     """运行NPU profiler并返回生成的性能分析目录路径。"""
     import torch
     import torch_npu
@@ -284,7 +284,8 @@ def run_profiler_with_config(test_fn: callable, warmup: int, repeats: int, profi
     torch.npu.synchronize()
 
     skip_first = 1 + warmup
-    total_steps = skip_first + repeats
+    repeat = 1
+    total_steps = skip_first + (warmup + active) * repeat
 
     timestamp = int(time.time() * 1000)
     profile_path = os.path.join(os.getcwd(), f"{profile_name}_{timestamp}")
@@ -295,7 +296,7 @@ def run_profiler_with_config(test_fn: callable, warmup: int, repeats: int, profi
             torch_npu.profiler.ProfilerActivity.CPU
         ],
         schedule=torch_npu.profiler.schedule(
-            wait=0, warmup=warmup, active=repeats, repeat=1, skip_first=skip_first
+            wait=0, warmup=warmup, active=active, repeat=repeat, skip_first=skip_first
         ),
         on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(profile_path),
         record_shapes=False,
@@ -336,43 +337,15 @@ def measure_single(
         operators, latency_ms = None, None
 
     if operators is None or latency_ms is None or latency_ms <= 0.0001:
-        print(f"警告: profiler 无法获取有效时延数据（当前:{latency_ms} ms），将使用 time.perf_counter() 进行兜底测试...")
-        return measure_single_fallback(model, inputs, warmup, repeats, device)
+        print(f"[FALLBACK_TRIGGER] 触发条件: operators={operators is None}, latency_ms={latency_ms}, 条件结果=True")
+        print(f"警告: profiler 无法获取有效时延数据（当前:{latency_ms} ms），返回 NaN")
+        peak_memory = torch.npu.max_memory_allocated() / (1024 * 1024)
+        return operators, float('nan'), round(peak_memory, 2)
+    else:
+        print(f"[FALLBACK_NOT_TRIGGERED] profiler获取有效数据: latency_ms={latency_ms}, operators数量={len(operators) if operators else 0}")
 
     peak_memory = torch.npu.max_memory_allocated() / (1024 * 1024)
     return operators, latency_ms, round(peak_memory, 2)
-
-
-def measure_single_fallback(
-        model: Any,
-        inputs: List[Any],
-        warmup: int,
-        repeats: int,
-        device: Any
-) -> Tuple[Optional[Dict[str, float]], Optional[float], float]:
-    """使用time.perf_counter()的兜底测试机制"""
-    import torch
-    import torch_npu  # noqa: F401
-    import statistics
-
-    with torch.no_grad():
-        for _ in range(warmup):
-            _ = model(*inputs)
-    torch.npu.synchronize()
-
-    latencies = []
-    for _ in range(repeats):
-        torch.npu.synchronize()
-        start = time.perf_counter()
-        with torch.no_grad():
-            _ = model(*inputs)
-        torch.npu.synchronize()
-        end = time.perf_counter()
-        latencies.append((end - start) * 1000)
-
-    avg_latency_ms = statistics.mean(latencies)
-    peak_memory = torch.npu.max_memory_allocated() / (1024 * 1024)
-    return {}, round(avg_latency_ms, 4), round(peak_memory, 2)
 
 
 # ============================================================================
@@ -423,11 +396,12 @@ def run_single_benchmark(
             f"[用例 {case_idx}/{total_cases}] 无法从 profiler 提取有效时延数据"
         )
 
-    speedup = (
-        framework_latency_ms / impl_latency_ms
-        if impl_latency_ms > 0 and framework_latency_ms > 0
-        else 0
-    )
+    if math.isnan(impl_latency_ms) or math.isnan(framework_latency_ms):
+        speedup = float('nan')
+    elif impl_latency_ms > 0 and framework_latency_ms > 0:
+        speedup = framework_latency_ms / impl_latency_ms
+    else:
+        speedup = 0
 
     return (
         PerformanceResult(
