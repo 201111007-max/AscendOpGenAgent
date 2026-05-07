@@ -2,123 +2,117 @@
 
 ## Triton代码生成
 
-### KernelBench 评测子集列表
+### NPU KernelBench 评测子集列表
 
-1. **所有Vector任务** (40个)：19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,47,48,49,51,52,53,88,89,90,91,92,93,94,95,96,98,99,100
-    
-        注：41,42,43,44,45,46为Pooling算子，由于NPU不支持torch接口，暂时不计入评测
+**Level 0** (20 tasks)：1-20
 
+**Level 1** (31 tasks)：1-31
 
-2. **评测子集的所有cube和cv任务**(25个)：level1的 2,4,10,11,12,13,14,15,16,17,50,54,57,61,63,64,67,82,87 和 level2的 6,12,17,23,30,94
+**Level 2** (30 tasks)：1-30
 
 ### Triton-ascend基线结果
 
 **评测环境**
-- 分支：triton_optimization @ 2850e32a311c80f6240b588985cde3258cafa682
-- 更新时间：2026-04-20
+- 分支：br_430 @ latest
+- 更新时间：2026-04-30
 - 硬件：Atlas A2 服务器
 - 软件栈：CANN 8.5.1, PyTorch 2.9.0
-- 评测范围：所有Vector任务 (40个)和评测子集的所有cube和cv任务(25个)
+- 评测范围：所有Vector任务 (Level1 和 Level2) 61个和430商发算子 ( level0 ) 20个
 
 **1. 综合评测结果**
 | 指标 | 结果 |
 |------|------|
-| **综合精度通过率** | 56/65 (86%) |
-| **综合性能≥0.6x达标** | 43/65 (66%) |
-| **综合性能≥0.8x达标** | 38/65 (58%) |
-
-
-**2. Vector评测结果**
-| 指标 | 结果 |
-|------|------|
-| **Vector精度通过率** | 40/40 (100%) |
-| **Vector性能≥0.6x达标** | 34/40 (85%)  |
-| **Vector性能≥0.8x达标** | 33/40 (82.5%)  |
-
-
-**3. CUBE & CV评测结果**
-| 指标 | 结果 |
-|------|------|
-| **CUBE & CV精度通过率** | 16/25 (64%)  |
-| **CUBE & CV性能≥0.6x达标** |  9/25 (36%)   |
-| **CUBE & CV性能≥0.8x达标** | 5/25 (20%)  |
+| **综合精度通过率** | 81/81 (100%) |
+| **综合性能≥0.6x达标** | 50/81 (62%) |
+| **综合性能≥0.8x达标** | 40/81 (49%) |
 
 
 **详细结果表**
 
 | Level | Problem ID | 算子名称 | 算子类型 | 验收类型 | 评测子集 | PyTorch 性能(ms) | triton性能(ms) | triton优化后性能(ms) | 加速比 | 加速比(性能优化后) | 精度正确 | 性能 0.6x 达标| 性能0.8x 达标 |
 |:---|:---:|---------|:-------:|:------:|:------:|-------------:|---------------:|--------:|--------:|--------:|:-------:|:-------:|:-------:|
-| 1 | 19 | 19_ReLU.py | Relu | VECTOR | - | 9.3672 | 11.3815 | 9.3925 | 0.82x | 1x | ✅ | ✅ | ✅ |
-| 1 | 20 | 20_LeakyReLU.py | Elementwise | VECTOR | - | 11.15 | 14.22 | 14.22 | 0.79x | - | ✅ | ✅ | ❌ |
-| 1 | 21 | 21_Sigmoid.py | Elementwise | VECTOR | - | 10.4849 | 13.226 | 10.6572 | 0.99x | - | ✅ | ✅ | ✅ |
-| 1 | 22 | 22_Tanh.py | Elementwise | VECTOR | - | 12.89 | 13.29 | - | 1.03x | - | ✅ | ✅ | ✅ |
-| 1 | 23 | 23_Softmax.py | Reduce & Norm | VECTOR | - | 32.9 | 38.7 | - | 0.85x | - | ✅ | ✅ | ✅ |
-| 1 | 24 | 24_LogSoftmax.py | Reduce & Norm | VECTOR | - | 25.95 | 19.63 | - | 1.32x | - | ✅ | ✅ | ✅ |
-| 1 | 25 | 25_Swish.py | Elementwise | VECTOR | - | 27.16 | 13.32 | - | 2.04x | - | ✅ | ✅ | ✅ |
-| 1 | 26 | 26_GELU_.py | Elementwise | VECTOR | - | 10.7 | 12.99 | - | 0.82x | - | ✅ | ✅ | ✅ |
-| 1 | 27 | 27_SELU_.py | Elementwise | VECTOR | - | 10.45 | 11.85 | 14.56 | 0.88x | 0.72x | ✅ | ✅ | ✅ |
-| 1 | 28 | 28_HardSigmoid.py | Elementwise | VECTOR | - | 9.7181 | 12.6016 | - | 0.77x | - | ✅ | ✅ | ❌ |
-| 1 | 29 | 29_Softplus.py | Elementwise | VECTOR | - | 51.99 | 25.19 | 45.08 | 1.15x | - | ✅ | ✅ | ✅ |
-| 1 | 30 | 30_Softsign.py | Elementwise | VECTOR | - | 37.73 | 12.78 | 11.05 | - | 3.42x | ✅ | ✅ | ✅ |
-| 1 | 31 | 31_ELU.py | Elementwise | VECTOR | - | 16.91 | 13.88 | - | 0.82x | - | ✅ | ✅ | ✅ |
-| 1 | 32 | 32_HardTanh.py | Elementwise | VECTOR | - | 25.12 | 13.17 | 11.09 | - | 2.26x | ✅ | ✅ | ✅ |
-| 1 | 33 | 33_BatchNorm.py | Reduce & Norm | VECTOR | Y | 9.0229 | 2978.1464 | 9.7455 | 0x | 0.93x | ✅ | ✅ | ✅ |
-| 1 | 34 | 34_InstanceNorm.py | Reduce & Norm | VECTOR | Y | 14.5506 | 8584.2789 | 15.4906 | 0x | 0.94x | ✅ | ✅ | ✅ |
-| 1 | 35 | 35_GroupNorm_.py | Reduce & Norm | VECTOR | Y | 18.06 | 35.12 | 18.94 | - | 0.97x | ✅ | ✅ | ✅ |
-| 1 | 36 | 36_RMSNorm_.py | Reduce & Norm | VECTOR | Y | 37 | 19034 | 1172 | - | 0.03x | ✅ | ❌ | ❌ |
-| 1 | 37 | 37_FrobeniusNorm_.py | Reduce & Norm | VECTOR | - | 15.2651 | 21.7456 | 15.1339 | 0.7x | 1.01x | ✅ | ✅ | ✅ |
-| 1 | 38 | 38_L1Norm_.py | Reduce & Norm | VECTOR | - | 34.95 | 17.47 | - | - | 2.00x | - | ✅ | ✅ |
-| 1 | 39 | 39_L2Norm_.py | Reduce & Norm | VECTOR | - | 20.8 | 43.35 | 24.64 | - | 0.84x | ✅ | ✅ | ✅ |
-| 1 | 40 | 40_LayerNorm.py | Reduce & Norm | VECTOR | - | 2.78 | 9.84 | 1.99 | - | 1.39x | ✅ | ✅ | ✅ |
-| 1 | 41 | 41_Max_Pooling_1D.py | Reduce & Norm | VECTOR | Y | 0.0704 | 0.2406 | 0.2406 | 0.29x | - | ✅ | ❌ | ❌ |
-| 1 | 42 | 42_Max_Pooling_2D.py | Reduce & Norm | VECTOR | Y | 35.74 | 6398.93 | - | 0.01x | - | ✅ | ❌ | ❌ |
-| 1 | 43 | 43_Max_Pooling_3D.py | Reduce & Norm | VECTOR | Y | - | - | - | - | - | ✅ | ❌ | ❌ |
-| 1 | 44 | 44_Average_Pooling_1D.py | Reduce & Norm | VECTOR | Y | 28.53 | 2148.08 | - | 0.01x | - | ✅ | ❌ | ❌ |
-| 1 | 45 | 45_Average_Pooling_2D.py | Reduce & Norm | VECTOR | Y | - | - | - | - | - | ✅ | ❌ | ❌ |
-| 1 | 46 | 46_Average_Pooling_3D.py | Reduce & Norm | VECTOR | Y | 173.14 | 13527.78 | 13527.78 | - | 0.013x | ✅ | ❌ | ❌ |
-| 1 | 47 | 47_Sum_reduction_over_a_dimension.py | Reduce & Norm | VECTOR | - | 7.08 | 413.57 | 6.69 | - | 1.06x | ✅ | ✅ | ✅ |
-| 1 | 48 | 48_Mean_reduction_over_a_dimension.py | Reduce & Norm | VECTOR | Y | 32.84 | 23.79 | 23.79 | - | 1.38x | ✅ | ✅ | ✅ |
-| 1 | 49 | 49_Max_reduction_over_a_dimension.py | Reduce & Norm | VECTOR | - | 18.11 | 39.713 | 36.92 | 0.46x | 0.49x | ✅ | ❌ | ❌ |
-| 1 | 51 | 51_Argmax_over_a_dimension.py | Reduce & Norm | VECTOR | Y | 35.92 | 101.07 | - | 0.36x | - | ✅ | ✅ | ❌ |
-| 1 | 52 | 52_Argmin_over_a_dimension.py | Reduce & Norm | VECTOR | - | 63.61 | 473.31 | 42.39 | 0.13x | 1.5x | ✅ | ✅ | ✅ |
-| 1 | 53 | 53_Min_reduction_over_a_dimension.py | Reduce & Norm | VECTOR | Y | 18.09 | 16.63 | 16.63 | 1.09x | 1.09x | ✅ | ✅ | ✅ |
-| 1 | 88 | 88_MinGPTNewGelu.py | Elementwise | VECTOR | - | 4.19 | 0.61 | 0.47 | 6.85x | 13.03x | ✅ | ✅ | ✅ |
-| 1 | 89 | 89_cumsum.py | Scan & Loss | VECTOR | - | 70.32 | 333.99 | 325.93 | 0.21x | 0.22x | ✅ | ❌ | ❌ |
-| 1 | 90 | 90_cumprod.py | Scan & Loss | VECTOR | - | 17986.45 | 2980.72 | 2985.05 | 6.03x | 6.03x | ✅ | ✅ | ✅ |
-| 1 | 91 | 91_cumsum_reverse.py | Scan & Loss | VECTOR | - | 1330.8 | 341.47 | 681.77 | 3.90x | 1.95x | ✅ | ✅ | ✅ |
-| 1 | 92 | 92_cumsum_exclusive.py | Scan & Loss | VECTOR | - | 117.45 | 344.52 | 491.06 | 0.34x | 0.24x | ✅ | ❌ | ❌ |
-| 1 | 93 | 93_masked_cumsum.py | Scan & Loss | VECTOR | - | 85.38 | 2976.83 | - | 0.03x | - | ✅ | ❌ | ❌ |
-| 1 | 94 | 94_MSELoss | Scan & Loss | VECTOR | - | 20.96 | 6.96 | 6.96 | 3.01x | 3.01x | ✅ | ✅ | ✅ |
-| 1 | 95 | 95_CrossEntropyLoss | Scan & Loss | VECTOR | - | 1.23 | 0.71 | 0.72 | 1.75x | 1.72x | ✅ | ✅ | ✅ |
-| 1 | 96 | 96_HuberLoss | Scan & Loss | VECTOR | - | 14.13 | 18.62 | 7.67 | 0.76x | 1.84x | ✅ | ✅ | ✅ |
-| 1 | 98 | 98_KLDivLoss.py | Scan & Loss | VECTOR | - | 7.04 | 3.24 | 2.51 | 2.17x | 2.80x | ✅ | ✅ | ✅ |
-| 1 | 99 | 99_TripletMarginLoss.py | Scan & Loss | VECTOR | Y | 10.68 | 4.52 | 2.28 | 2.36x | 4.68x | ✅ | ✅ | ✅ |
-| 1 | 100 | 100_HingeLoss.py | Scan & Loss | VECTOR | Y | 33.92 | 7.77 | 2072.77 | 4.37x | 0.02x | ✅ | ✅ | ✅ |
-| 1 | 2 | 2_Standard_matrix_multiplication_.py | MatMul | CUBE | Y | 1.4503 | 1.6552 | 1.5584 | 0.88x | 0.93x | ✅ | ✅ | ✅ |
-| 1 | 4 | 4_Matrix_vector_multiplication_.py | MatMul | CUBE | Y | 33.195 | 153.6719 | 210.2235 | 0.22x | 0.16x | ✅ | ❌ | ❌ |
-| 1 | 10 | 10_3D_tensor_matrix_multiplication.py | MatMul | CUBE | Y | 0.5293 | 0.7751 | 0.7197 | 0.68x | 0.74x | ✅ | ✅ | ❌ |
-| 1 | 11 | 11_4D_tensor_matrix_multiplication.py | MatMul | CUBE | Y | 5.0292 | 884.7962 | 5.4096 | 0.01x | 0.93x | ✅ | ✅ | ✅ |
-| 1 | 12 | 12_Matmul_with_diagonal_matrices_.py | MatMul | CUBE | Y | 0.036 | 0.0652 | 0.0309 | 0.55x | 1.17x | ✅ | ✅ | ✅ |
-| 1 | 13 | 13_Matmul_for_symmetric_matrices.py | MatMul | CUBE | Y | 1.4519 | 1.9097 | 1.5782 | 0.76x | 0.92x | ✅ | ✅ | ✅ |
-| 1 | 14 | 14_Matmul_for_upper_triangular_matrices.py | MatMul | CUBE | Y | 1.5232 | 23.6837 | 6.2024 | 0.06x | 0.25x | ✅ | ❌ | ❌ |
-| 1 | 15 | 15_Matmul_for_lower_triangular_matrices.py | MatMul | CUBE | Y | 1.5183 | 51.3792 | 103.5366 | 0.03x | 0.01x |✅|❌|❌|
-| 1 | 16 | 16_Matmul_with_transposed_A.py | MatMul | CUBE | Y | 1.4501 | 2.084 | 1.5076 | 0.70x | 0.96x | ✅ | ✅ | ✅ |
-| 1 | 17 | 17_Matmul_with_transposed_B.py | MatMul | CUBE | Y | 1.453 | 4.3877 | 1.8599 | 0.33x | 0.78x | ✅ | ✅ | ❌ |
-| 1 | 50 | 50_conv_standard_2D__square_input__square_kernel | Reduce & Norm | CUBE | Y | 2.5868 | 40.6679 | 38.587 | 0.06x | 0.07x | ❌ | ❌ | ❌ |
-| 1 | 54 | 54_conv_standard_3D__square_input__square_kernel.py | Conv | CUBE | Y | 5.0729 | 15484.87 | 209.08 | 0.00x | 0.02x | ✅ | ❌ | ❌ |
-| 1 | 57 | 57_conv_transposed_2D__square_input__square_kernel.py | Conv | CUBE | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 1 | 61 | 61_conv_transposed_3D__square_input__square_kernel.py | Conv | CUBE | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 1 | 63 | 63_conv_standard_2D__square_input__square_kernel.py | Conv | CUBE | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 1 | 64 | 64_conv_transposed_1D.py | Conv | CUBE | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 1 | 67 | 67_conv_standard_1D.py | Conv | CUBE | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 1 | 82 | 82_conv_depthwise_2D_square_input_square_kernel.py | Conv | CUBE | Y | 5.6333 | 763.7151 | 26.0708 | 0.01x | 0.22x | ✅ | ❌ | ❌ |
-| 1 | 87 | 87_conv_pointwise_2D.py | Conv | CUBE | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 2 | 6 | 6_Conv3d_Softmax_MaxPool_MaxPool.py | level2融合 | CV | Y | 1.4386 | 8105.7984 | 8163.3078 | 0.00x | 0.00x | ✅ | ❌ | ❌ |
-| 2 | 12 | 12_Gemm_Multiply_LeakyReLU.py | level2融合 | CV | Y | 1.6423 | 26.5232 | 2.2062 | 0.06x | 0.74x | ✅ | ✅ | ❌ |
-| 2 | 17 | 17_Conv2d_InstanceNorm_Divide.py | level2融合 | CV | Y | / | / | / | / | / | ✅ | ❌ | ❌ |
-| 2 | 23 | 23_Conv3d_GroupNorm_Mean.py | level2融合 | CV | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
-| 2 | 30 | 30_Gemm_GroupNorm_Hardtanh.py | level2融合 | CV | Y | 2.2889 | 3.8172 | 3.4478 | 0.60x | 0.66x | ✅ | ✅ | ❌ |
-| 2 | 94 | 94_Gemm_BiasAdd_Hardtanh_Mish_GroupNorm.py | level2融合 | CV | Y | / | / | / | / | / | ❌ | ❌ | ❌ |
+| 0 | 1 | LogicalAnd | 数学计算 | - | 0.2027 | 0.1721 | 0.1619 | 0.7076 | 0.7509 | 52/52 | ✅ | ✅ | ❌ |
+| 0 | 2 | FloorDivide | 数学计算 | - | 0.3763 | 0.4883 | 0.1812 | 0.3808 | 0.6965 | 50/50 | ✅ | ✅ | ❌ |
+| 0 | 3 | LogicalNot | 数学计算 | - | 0.0956 | 0.0978 | 0.0978 | 1.6031 | - | 65/65 | ✅ | ✅ | ✅ |
+| 0 | 4 | LogicalOr | 数学计算 | - | 0.3753 | 0.2972 | 0.291 | 1.9387 | 2.0815 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 5 | Mish | 数学计算 | - | 0.0223 | 0.0174 | 0.01 | 1.2297 | 1.8256 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 6 | RealDiv | 数学计算 | - | 0.01 | 0.0066 | 0.0066 | 1.2139 | - | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 7 | Hardsigmoid | 激活函数 | - | 0.0081 | 0.01 | 0.0063 | 0.7102 | 0.9963 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 8 | HardsigmoidBackward | 激活函数 | - | 0.0065 | 0.0043 | 0.0039 | 0.9678 | 1.1474 | 72/72 | ✅ | ✅ | ✅ |
+| 0 | 9 | MishBackward | 激活函数 | - | 0.0361 | 0.0198 | 0.0185 | 1.5870 | 1.6099 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 10 | Relu | 激活函数 | - | 0.0102 | 0.0084 | - | 0.7200 | - | 50/50 | ✅ | ✅ | ❌ |
+| 0 | 11 | Sigmoid | 激活函数 | - | 0.0126 | 0.0066 | 0.0069 | 0.9675 | 1.0767 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 12 | Swish | 激活函数 | - | 0.0231 | 0.0141 | 2.4364 | 0.0108 | 2.4576 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 13 | Elu | 激活函数 | - | 0.0503 | / | 0.1151 | / | 2.1004 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 14 | EluBackward | 激活函数 | - | 0.0568 | / | 0.0204 | / | 3.205 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 15 | GtTensor | 数学计算 | - | 0.0237 | 0.0887 | 0.0298 | 0.2864 | 0.6393 | 50/50 | ✅ | ✅ | ❌ |
+| 0 | 16 | Hardswish | 激活函数 | - | 0.0016 | 0.0026 | 0.0023 | 0.5999 | 0.6729 | 50/50 | ✅ | ✅ | ❌ |
+| 0 | 17 | LogAddExp | 数学计算 | - | 0.0432 | 0.0428 | - | 1.0464 | - | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 18 | NeScalar | 数学计算 | - | 0.0287 | 0.0142 | 0.012 | 2.8176 | 3.0113 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 19 | Threshold | 数学计算 | - | 0.0209 | 0.2379 | 0.0051 | 0.6383 | 2.7435 | 50/50 | ✅ | ✅ | ✅ |
+| 0 | 20 | Relugard | 激活函数 | - | 0.0159 | 0.0075 | 0.0074 | 1.7950 | 1.814 | 50/50 | ✅ | ✅ | ✅ |
+| 1 | 1 | GELU | vector | - | 0.0316 | / | 0.0507 | / | 0.6226x | 50/50 | ✅ | ✅ | ❌ |
+| 1 | 2 | SwiGLU | vector | - | 0.0302 | / | 0.0324 | / | 0.9321x | 50/50 | ✅ | ✅ | ✅ |
+| 1 | 3 | Add | vector | - | 1.4386 | / | 32.4138 | / | 0.0444x | 50/50 | ✅ | ❌ | ❌ |
+| 1 | 4 | Abs | vector | - | 0.0262 | / | 0.0277 | / | 0.9445x | 50/50 | ✅ | ✅ | ✅ |
+| 1 | 5 | Cumsum | vector | - | 0.5846 | 1.6357 | 0.4715 | 0.3574 | 1.24x | 50/50 | ✅ | ✅ | ✅ |
+| 1 | 6 | Histc | vector | - | 0.0416 | 0.0679 | / | 0.6129x | / | 15/15 | ✅ | ✅ | ❌ |
+| 1 | 7 | Sum | vector | - | 0.0272 | / | 0.065 | / | 0.4181x | 44/44 | ✅ | ❌ | ❌ |
+| 1 | 8 | Sort | vector | - | 0.4624 | / | 0.4638 | / | 0.9969x | 31/31 | ✅ | ✅ | ✅ |
+| 1 | 9 | TopK | vector | - | 0.2989 | / | 6.9931 | / | 0.0427x | 29/29 | ✅ | ❌ | ❌ |
+| 1 | 10 | LayerNorm | vector | - | 0.0805 | / | 0.1112 | / | 0.7242x | 60/60 | ✅ | ✅ | ❌ |
+| 1 | 11 | GroupNorm | vector | - | 0.4337 | 10.6984 | / | 0.0405x | - | 73/73 | ✅ | ❌ | ❌ |
+| 1 | 12 | Permute | vector | - | 0.0145 | 0.771 | 0.1891 | 0.0188x | 0.7713x | 149/149 | ✅ | ✅ | ❌ |
+| 1 | 13 | Cat | vector | - | 4.0628 | 3.956 | / | 1.0270x | / | 51/51 | ✅ | ✅ | ✅ |
+| 1 | 14 | Split | vector | - | 0.0203 | 47.4486 | / | 0.0004x | / | 57/57 | ✅ | ❌ | ❌ |
+| 1 | 15 | Pad | vector | - | 0.2866 | 40.3909 | 5.0251 | 0.0071 | 0.0594 | 51/51 | ✅ | ❌ | ❌ |
+| 1 | 16 | Repeat | vector | - | 0.0624 | / | 14.4755 | / | 0.0043x | 49/49 | ✅ | ❌ | ❌ |
+| 1 | 17 | AdamW | vector | - | 5.1254 | 0.6135 | / | 8.3541x | / | 18/18 | ✅ | ✅ | ✅ |
+| 1 | 18 | Index | vector | - | 0.0189 | / | 2.3869 | / | 0.0079x | 41/41 | ✅ | ❌ | ❌ |
+| 1 | 19 | IndexPut | vector | - | 0.0651 | / | 0.2213 | / | 0.2944x | 46/46 | ✅ | ❌ | ❌ |
+| 1 | 20 | Gather | vector | - | 0.2548 | / | 9.7378 | / | 0.0262x | 47/47 | ✅ | ❌ | ❌ |
+| 1 | 21 | Scatter | vector | - | 32.313 | 17.6788 | 17.6788 | 1.8278 | 1.8278 | 47/47 | ✅ | ✅ | ✅ |
+| 1 | 22 | Nonzero | vector | - | 62.6017 | 50.7089 | / | 1.2345x | / | 50/50 | ✅ | ✅ | ✅ |
+| 1 | 23 | RepeatInterleave | vector | - | 0.0728 | / | 23.4155 | / | 0.0031x | 75/75 | ✅ | ❌ | ❌ |
+| 1 | 24 | EmbeddingDenseBackward | vector | - | 994.1949 | / | 4823.5206 | / | 0.2061x | 30/30 | ✅ | ❌ | ❌ |
+| 1 | 25 | NLLLoss | vector | - | 0.5876 | 0.4602 | 0.4622 | 1.2767 | 1.2675 | 50/50 | ✅ | ✅ | ✅ |
+| 1 | 26 | AvgPool3d | vector | - | 0.1523 | 1.7693 | / | 0.0861x | / | 72/72 | ✅ | ❌ | ❌ |
+| 1 | 27 | MaxPool3d | vector | - | 0.9754 | / | 64.5584 | - | 0.0151x | 50/50 | ✅ | ❌ | ❌ |
+| 1 | 28 | Interpolate | vector | - | 22.9412 | / | 12.5022 | / | 0.0571 | 73/73 | ✅ | ❌ | ❌ |
+| 1 | 29 | DynamicQuant | vector | - | 1.1846 | / | 0.7965 | - | 1.4873x | 42/42 | ✅ | ✅ | ✅ |
+| 1 | 30 | NMS | vector | - | / | / | / | / | / | 50/50 | ✅ | ❌ | ❌ |
+| 1 | 31 | IOU | vector | - | 0.1842 | 2.4672 | / | 0.0747x | / | 30/30 | ✅ | ❌ | ❌ |
+| 2 | 1 | RotaryMul | vector | - | 0.0376 | 3.275 | / | 0.0115x | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 2 | GroupNormSwish | vector | - | 1.283 | 3.2323 | / | 0.3969x | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 3 | AdvanceStepFlashattn | vector | - | 0.2927 | 0.0528 | / | 5.5406 | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 4 | MoeComputeExpertTokens | vector | - | 4.7855 | 1.7265 | / | 2.7717 | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 5 | MoeInitRouting | vector | - | 0.0257 | / | 2.7281 | / | 0.0094 | 53/53 | ✅ | ❌ | ❌ |
+| 2 | 6 | MoeFinalizeRouting | vector | - | 0.5439 | 0.1096 | / | 4.9642 | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 7 | MoeGatingTopKSoftmax | vector | - | 1.2745 | 25.7509 | / | 0.0495 | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 8 | QuantScatter | vector | - | 0.5237 | 0.5306 | / | 0.9871 | / | 57/57 | ✅ | ✅ | ✅ |
+| 2 | 9 | TopKTopP | vector | - | / | / | / | / | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 10 | SwigluQuant | vector | - | / | / | / | / | / | 52/52 | ✅ | ❌ | ❌ |
+| 2 | 11 | DequantSwigluQuant | vector | - | 0.1861 | 0.1242 | / | 1.0082 | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 12 | KvRmsnormRopeCache | vector | - | / | / | / | / | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 13 | InterleaveRope | vector | - | 0.0689 | 0.071 | / | 0.9697 | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 14 | AdaptiveInstanceNormalization2DBackward | vector | - | 0.14 | 0.6061 | / | 0.2311x | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 15 | AttentionSoftmaxWithSoftcappingAndDropout | vector | - | 0.0857 | 1.4747 | / | 0.0581 | / | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 16 | Batched2DRopePositionEncodingBackward | vector | - | 0.0609 | 0.0374 | / | 1.6301 | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 17 | EmbeddingWithInitialLayernormBackward | vector | - | 1.908 | 8.7916 | / | 0.217 | - | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 18 | FusedAddRmsnorm | vector | - | 0.0377 | / | 0.1227 | / | 0.3075 | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 19 | FusedResidualRmsNormBackward | vector | - | 0.2471 | / | 0.0915 | / | 2.7011x | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 20 | FusedRopeWithQkNormAndKvCacheUpdate | vector | - | 1.8829 | / | 0.1245 | / | 15.1269x | 58/58 | ✅ | ✅ | ✅ |
+| 2 | 21 | GaussianTopkSparseActivation | vector | - | 0.153 | / | 0.0264 | / | 5.7903x | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 22 | HybridAttentionMaskPreparation | vector | - | 0.5636 | / | 10.661 | / | 0.0529x | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 23 | HyenaFftSizePaddingRfft | vector | - | 0.6398 | / | 6.6976 | / | 0.0955x | 49/49 | ✅ | ❌ | ❌ |
+| 2 | 24 | KvCacheUpdateWithRopeBackward | vector | - | 0.5936 | / | 5.3063 | / | 0.1119x | 50/50 | ✅ | ❌ | ❌ |
+| 2 | 25 | MaskedSoftmaxWithAttentionDropoutBackward | vector | - | 0.0579 | / | 0.0449 | - | 1.2905x | 51/51 | ✅ | ✅ | ✅ |
+| 2 | 26 | MoeGroupScoreAggregationAndMasking | vector | - | 0.152 | 0.0232 | / | 6.5626x | - | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 27 | MultiMaskAttentionAggregation | vector | - | 0.1601 | / | 0.114 | / | 2.4422 | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 28 | MultimodalRopePositionComputationWithGridBasedIndexing | vector | - | 0.6601 | 0.4289 | / | 1.5389x | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 29 | TanhGatedResidualAddBackward | vector | - | 0.1298 | 0.0473 | / | 2.7418x | / | 50/50 | ✅ | ✅ | ✅ |
+| 2 | 30 | TimeDecayExponentialStabilization | vector | - | 2.744 | 0.0694 | / | 39.5174x | / | 50/50 | ✅ | ✅ | ✅ |
+
 
 ## AscendC代码生成
 

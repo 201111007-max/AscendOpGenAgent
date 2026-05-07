@@ -13,10 +13,22 @@
 | `T.copy(src, dst)` (`L1 -> L0A`) | `AscendC::LoadData(...)` / `AscendC::LoadDataWithTranspose(...)` | 是否转置取决于 layout。 |
 | `T.copy(src, dst)` (`L1 -> L0B`) | `AscendC::LoadData(...)` / `AscendC::LoadDataWithTranspose(...)` | 是否转置取决于 layout。 |
 | `T.copy(src, dst)` (`L0C -> GM`) | `AscendC::Fixpipe(...)` |  |
-| `T.copy(src, dst)` (`GM -> UB`) | `AscendC::DataCopyPad(...)` | 若目标是 `TQue`，配合 `AllocTensor` 和 `EnQue`；如果是矩阵的二维子 tile，常改用 `DataCopy` + `DataCopyParams`。 |
-| `T.copy(src, dst)` (`UB -> GM`) | `AscendC::DataCopyPad(...)` | 若来源是 `TQue`，配合 `DeQue` 和 `FreeTensor`；如果是写回矩阵的二维子 tile，常改用 `DataCopy` + `DataCopyParams`。 |
+| `T.copy(src, dst)` (`GM -> UB`) | `AscendC::DataCopyPad(local, global, copyParams, padParams)` | 若目标是 `TQue`，配合 `AllocTensor` 和 `EnQue`；如果是矩阵的二维子 tile，常改用 `DataCopy` + `DataCopyParams`。 |
+| `T.copy(src, dst)` (`UB -> GM`) | `AscendC::DataCopyPad(global, local, copyParams)` | 若来源是 `TQue`，配合 `DeQue` 和 `FreeTensor`；如果是写回矩阵的二维子 tile，常改用 `DataCopy` + `DataCopyParams`。 |
 | `T.copy(src, dst)` (`UB -> UB`, same dtype) | `AscendC::DataCopy(...)` |  |
 | `T.copy(src, dst)` (`UB -> UB`, cast dtype) | `AscendC::Cast(...)` |  |
+
+### DataCopy / DataCopyPad 注意事项
+
+- `DataCopyPad` 的 `GM -> UB` 和 `UB -> GM` 参数个数不同：
+  - `GM -> UB`：`DataCopyPad(local, global, copyParams, padParams)`，需要 4 参数，并传入 `DataCopyPadExtParams<T>`。
+  - `UB -> GM`：`DataCopyPad(global, local, copyParams)`，只需要 3 参数，不传 `padParams`。
+- `DataCopyExtParams` 常用字段为 `blockCount, blockLen, srcStride, dstStride, rsv`；其中 `blockLen` 单位是字节，`srcStride`/`dstStride` 的单位随 GM 或 Local 位置变化。
+- `DataCopyPadExtParams<T>` 常用字段为 `isPad, leftPadding, rightPadding, padValue`；`isPad` 属于 `DataCopyPadExtParams<T>`，不要写进 `DataCopyExtParams`。
+- 参与 `GM <-> UB` 搬运的 UB buffer 优先映射为 `TQue` 分配的 `LocalTensor`，并按方向配合 `AllocTensor`/`EnQue` 或 `DeQue`/`FreeTensor`；不要把直接参与 `DataCopy` / `DataCopyPad` 的 buffer 映射为普通 `TBuf`。
+- 连续且 32B 对齐的搬运优先用 `DataCopy`；非对齐、尾块或需要补齐时再用 `DataCopyPad`。
+- 矩阵二维子 tile 或带 stride 的搬运应显式构造 `DataCopyParams` / `DataCopyExtParams`。
+- 普通 `UB -> UB` 搬运优先用 `DataCopy`；`Local -> Local` 的 `DataCopyPad + Nd2NzParams` 属于特殊格式转换路径，不按普通 `T.copy(UB -> UB)` 套用。
 
 ## 向量与逐元素计算
 

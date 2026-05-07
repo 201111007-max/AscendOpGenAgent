@@ -33,7 +33,7 @@ def get_input_groups():
         cases = [json.loads(line) for line in f if line.strip()]
     
     input_groups = []
-    for case in cases:
+    for idx, case in enumerate(cases):
         inputs = case["inputs"]
         x_info = inputs[0]
         k_info = inputs[1]
@@ -47,7 +47,12 @@ def get_input_groups():
         }
         dtype = dtype_map[x_info["dtype"]]
         
-        x = torch.randn(x_info["shape"], dtype=dtype)
+        if idx % 2 == 0:
+            mu = float(torch.empty(1).uniform_(-100, 100).item())
+            sigma = float(torch.empty(1).uniform_(1, 25).item())
+            x = torch.normal(mu, sigma, x_info["shape"], dtype=dtype) + torch.ones(x_info["shape"], dtype=dtype)
+        else:
+            x = torch.empty(x_info["shape"], dtype=dtype).uniform_(-5, 5) + torch.ones(x_info["shape"], dtype=dtype)
         k = k_info["value"]
         dim = dim_info["value"]
         largest = largest_info["value"]

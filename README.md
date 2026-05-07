@@ -451,17 +451,36 @@ def get_init_inputs():
   "warmup": 5,
   "repeats": 50,
   "total_cases": 1,
+  "passed_cases": 1,
+  "failed_cases": 0,
+  "nan_indices": [],
+  "inf_indices": [],
+  "zero_indices": [],
+  "negative_indices": [],
+  "none_indices": [],
   "framework": {
     "avg_latency_ms": 0.2345,
-    "peak_memory_mb": 2.50
+    "peak_memory_mb": 2.50,
+    "operators": {}
   },
   "implementation": {
     "avg_latency_ms": 0.1567,
-    "peak_memory_mb": 1.25
+    "peak_memory_mb": 1.25,
+    "operators": {}
   },
-  "speedup_vs_torch": 1.5000,
-  "perf_method": "profiler",
-  "skill_path": "/path/to/.claude/skills/kernel-verifier"
+  "speedup_vs_torch": 1.4965,
+  "per_shape_results": [
+    {
+      "case_idx": 1,
+      "input_desc": [{"type":"tensor","shape":[1024,1024],"dtype":"torch.float16"}],
+      "status": "pass",
+      "framework": {"avg_latency_ms": 0.2345, "peak_memory_mb": 2.50},
+      "implementation": {"avg_latency_ms": 0.1567, "peak_memory_mb": 1.25},
+      "speedup_vs_torch": 1.4965,
+      "error_type": null,
+      "error_msg": null
+    }
+  ]
 }
 ```
 
@@ -473,53 +492,54 @@ def get_init_inputs():
   "warmup": 5,
   "repeats": 50,
   "total_cases": 3,
+  "passed_cases": 3,
+  "failed_cases": 0,
+  "nan_indices": [],
+  "inf_indices": [],
+  "zero_indices": [],
+  "negative_indices": [],
+  "none_indices": [],
   "framework": {
     "avg_latency_ms": 0.4567,
-    "peak_memory_mb": 8.50
+    "peak_memory_mb": 8.50,
+    "operators": {}
   },
   "implementation": {
     "avg_latency_ms": 0.3123,
-    "peak_memory_mb": 4.25
+    "peak_memory_mb": 4.25,
+    "operators": {}
   },
-  "speedup_vs_torch": 1.4600,
-  "perf_method": "profiler",
-  "skill_path": "/path/to/.claude/skills/kernel-verifier",
+  "speedup_vs_torch": 1.4910,
   "per_shape_results": [
     {
-      "shape": [128, 128],
-      "framework": {
-        "avg_latency_ms": 0.0234,
-        "peak_memory_mb": 0.50
-      },
-      "implementation": {
-        "avg_latency_ms": 0.0156,
-        "peak_memory_mb": 0.25
-      },
-      "speedup_vs_torch": 1.5000
+      "case_idx": 1,
+      "input_desc": [{"type":"tensor","shape":[128,128],"dtype":"torch.float16"}],
+      "status": "pass",
+      "framework": {"avg_latency_ms": 0.0234, "peak_memory_mb": 0.50},
+      "implementation": {"avg_latency_ms": 0.0156, "peak_memory_mb": 0.25},
+      "speedup_vs_torch": 1.5000,
+      "error_type": null,
+      "error_msg": null
     },
     {
-      "shape": [256, 256],
-      "framework": {
-        "avg_latency_ms": 0.0891,
-        "peak_memory_mb": 2.00
-      },
-      "implementation": {
-        "avg_latency_ms": 0.0588,
-        "peak_memory_mb": 1.00
-      },
-      "speedup_vs_torch": 1.5200
+      "case_idx": 2,
+      "input_desc": [{"type":"tensor","shape":[256,256],"dtype":"torch.float16"}],
+      "status": "pass",
+      "framework": {"avg_latency_ms": 0.0891, "peak_memory_mb": 2.00},
+      "implementation": {"avg_latency_ms": 0.0588, "peak_memory_mb": 1.00},
+      "speedup_vs_torch": 1.5153,
+      "error_type": null,
+      "error_msg": null
     },
     {
-      "shape": [1024, 1024],
-      "framework": {
-        "avg_latency_ms": 1.2577,
-        "peak_memory_mb": 8.00
-      },
-      "implementation": {
-        "avg_latency_ms": 0.8625,
-        "peak_memory_mb": 12.50
-      },
-      "speedup_vs_torch": 1.4600
+      "case_idx": 3,
+      "input_desc": [{"type":"tensor","shape":[1024,1024],"dtype":"torch.float16"}],
+      "status": "pass",
+      "framework": {"avg_latency_ms": 1.2577, "peak_memory_mb": 8.00},
+      "implementation": {"avg_latency_ms": 0.8625, "peak_memory_mb": 12.50},
+      "speedup_vs_torch": 1.4582,
+      "error_type": null,
+      "error_msg": null
     }
   ]
 }
@@ -533,23 +553,27 @@ def get_init_inputs():
 | `warmup` | `int` | 预热次数 |
 | `repeats` | `int` | 正式测试次数 |
 | `total_cases` | `int` | 测试的 Shape 数量（单 Shape 为 1，多 Shape ≥2） |
-| `framework.avg_latency_ms` | `float` | PyTorch 实现平均延迟（毫秒）各 Shape 平均 |
+| `passed_cases` / `failed_cases` | `int` | 多 Shape 通过 / 失败用例数（异常 `s_i` 的 shape 仍计入 `passed_cases`）|
+| `nan_indices` / `inf_indices` / `zero_indices` / `negative_indices` / `none_indices` | `List[int]` | 各类异常 `s_i` 的 case_idx 列表（从 1 开始，不进入几何平均）；无异常时为 `[]` |
+| `framework.avg_latency_ms` | `float` | PyTorch 实现平均延迟（毫秒），各 Shape 算术平均（兼容语义）|
 | `framework.peak_memory_mb` | `float` | PyTorch 峰值内存（MB）各 Shape 平均 |
-| `implementation.avg_latency_ms` | `float` | 实现平均延迟（毫秒）各 Shape 平均 |
+| `implementation.avg_latency_ms` | `float` | 实现平均延迟（毫秒），各 Shape 算术平均（兼容语义）|
 | `implementation.peak_memory_mb` | `float` | 实现峰值内存（MB）各 Shape 平均 |
-| `speedup_vs_torch` | `float` | 相比 PyTorch 的加速比（各 Shape 加速比的平均值） |
+| `speedup_vs_torch` | `float\|null` | **几何平均加速比** = `(∏ s_i)^(1/n)`，仅对 status==pass 且 `s_i` 为有限正数的 Shape；全部异常时为 `null` |
 | `perf_method` | `str` | 评测方式："profiler"（torch_npu.profiler）或 "fallback"（time.perf_counter 兜底） |
 | `skill_path` | `str` | 使用的 benchmark skill 路径 |
-| `per_shape_results` | `List[Dict]` | 多 Shape 明细数据（当 `total_cases > 1` 时出现） |
+| `per_shape_results` | `List[Dict]` | 各 Shape 明细数据（永远存在，含失败用例）|
 
 **per_shape_results 元素说明**：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `shape` | `List[int]` | 主要输入张量的形状 |
-| `framework.avg_latency_ms` | `float` | 该 Shape 的 PyTorch 延迟 |
-| `implementation.avg_latency_ms` | `float` | 该 Shape 的实现延迟 |
-| `speedup_vs_torch` | `float` | 该 Shape 的加速比 |
+| `case_idx` | `int` | 用例序号（从 1 开始）|
+| `input_desc` | `List[Dict]` | 输入结构化描述（tensor: shape+dtype；scalar: value）|
+| `status` | `str` | `"pass"` 或 `"fail"` |
+| `framework` / `implementation` | `Dict\|null` | pass 时含 `avg_latency_ms`、`peak_memory_mb`；fail 时为 null |
+| `speedup_vs_torch` | `float\|null` | 该 Shape 的加速比；fail 或 `s_i` 异常（NaN/Inf/0/负数/None）时为 null |
+| `error_type` / `error_msg` | `str\|null` | fail 时记录异常类型与堆栈（截断 2000 字符）|
 
 ### 适用场景
 

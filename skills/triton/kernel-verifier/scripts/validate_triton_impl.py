@@ -66,6 +66,12 @@ FORBIDDEN_TENSOR_METHODS = {
     "dropout", "softplus", "hardtanh", "hardswish",
 }
 
+# forward() 中禁止的 Python 控制流和结构
+FORBIDDEN_PYTHON_STMTS = {
+    "for": "Python for 循环",
+    "while": "Python while 循环",
+}
+
 
 # ---------------------------------------------------------------------------
 # AST 辅助函数
@@ -224,8 +230,19 @@ def check_kernel_calls_in_forward(forward_node, kernel_names, wrapper_names):
     return called
 
 
+def _count_kernel_launches_in_forward(forward_node):
+    """统计 forward() 中 kernel 启动调用（kernel[grid](...)）的次数。"""
+    count = 0
+    if forward_node is None:
+        return count
+    for node in ast.walk(forward_node):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript):
+            count += 1
+    return count
+
+
 def check_forbidden_torch_ops(forward_node):
-    """检查 forward 中是否使用了禁止的 torch 计算操作。
+    """检查 forward 中是否使用了禁止的 torch 计算操作或 Python 控制流。
 
     返回违规列表 [{"line": N, "call": str, "reason": str}, ...]
     """
@@ -233,7 +250,27 @@ def check_forbidden_torch_ops(forward_node):
     if forward_node is None:
         return violations
 
+    # --- 规则 A: forward() 中禁止 Python 循环（for/while）---
+    # 例外：如果 forward() 中只有一个 kernel 启动，允许简单的固定次数循环
+    #      （如 for _ in range(1) 这种无意义循环仍会被检测）
+    kernel_launch_count = _count_kernel_launches_in_forward(forward_node)
+
     for node in ast.walk(forward_node):
+        if isinstance(node, ast.For):
+            violations.append({
+                "line": node.lineno,
+                "call": "for 循环",
+                "reason": "forward() 中禁止 Python for 循环，核心计算必须在单个 Triton kernel 内完成",
+            })
+            continue
+        if isinstance(node, ast.While):
+            violations.append({
+                "line": node.lineno,
+                "call": "while 循环",
+                "reason": "forward() 中禁止 Python while 循环，核心计算必须在单个 Triton kernel 内完成",
+            })
+            continue
+
         # --- 检测 @ 运算符（矩阵乘法）---
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.MatMult):
             violations.append({
@@ -242,6 +279,19 @@ def check_forbidden_torch_ops(forward_node):
                 "reason": "矩阵乘法 @ 运算符必须在 Triton kernel 中实现",
             })
             continue
+
+        # --- 检测 list.append — 表明在 host 端维护动态状态 ---
+        if isinstance(node, ast.Call):
+            resolved = _resolve_call_name(node)
+            if resolved:
+                qual, attr = resolved
+                if attr == "append" and qual is not None:
+                    violations.append({
+                        "line": node.lineno,
+                        "call": f"{qual}.append(...)",
+                        "reason": "forward() 中禁止 list.append，动态状态维护必须在 Triton kernel 内完成",
+                    })
+                    continue
 
         if not isinstance(node, ast.Call):
             continue
@@ -301,6 +351,14 @@ def check_forbidden_torch_ops(forward_node):
                     "reason": f"self.{attr}() 疑似 nn.Module 前向调用，核心计算必须在 Triton kernel 中实现",
                 })
             continue
+
+    # --- 规则 B: 如果 forward() 中 kernel 启动次数 > 1，视为 Type3 退化 ---
+    if kernel_launch_count > 1:
+        violations.append({
+            "line": forward_node.lineno,
+            "call": f"kernel 启动 {kernel_launch_count} 次",
+            "reason": "forward() 中只能启动一次 Triton kernel，多次启动表明核心计算在 host 端循环中完成",
+        })
 
     return violations
 

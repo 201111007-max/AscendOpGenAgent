@@ -35,7 +35,7 @@ def get_input_groups():
         cases = [json.loads(line) for line in f if line.strip()]
     
     input_groups = []
-    for case in cases:
+    for idx, case in enumerate(cases):
         inputs = case["inputs"]
         input_info = inputs[0]
         target_info = inputs[1]
@@ -47,7 +47,12 @@ def get_input_groups():
         }
         dtype = dtype_map[input_info["dtype"]]
         
-        input_tensor = torch.randn(input_info["shape"], dtype=dtype)
+        if idx % 2 == 0:
+            mu = float(torch.empty(1).uniform_(-100, 100).item())
+            sigma = float(torch.empty(1).uniform_(1, 25).item())
+            input_tensor = torch.normal(mu, sigma, input_info["shape"], dtype=dtype) + torch.ones(input_info["shape"], dtype=dtype)
+        else:
+            input_tensor = torch.empty(input_info["shape"], dtype=dtype).uniform_(-5, 5) + torch.ones(input_info["shape"], dtype=dtype)
         
         target_range = target_info.get("range", [0, input_info["shape"][1] - 1])
         target = torch.randint(target_range[0], target_range[1] + 1, tuple(target_info["shape"]), dtype=torch.int64)

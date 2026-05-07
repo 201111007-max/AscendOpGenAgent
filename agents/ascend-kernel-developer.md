@@ -437,7 +437,7 @@ while ac_iteration < max_ac_iterations:
 2. **执行性能测试**：默认测试 `reference` 和 `ascendc`，使用 `@references/performance.py` 进行对比测试；只有用户明确要求时才额外纳入 `tilelang`
 3. **获取性能报告**：记录各实现的耗时和加速比
 
-**产出**：性能分析报告（markdown 格式，包含在 trace 中或直接输出）
+**产出**：性能分析报告（markdown 格式，包含在 trace 中或直接输出），`preformance.json`，用于记录每个case的加速比
 
 ---
 

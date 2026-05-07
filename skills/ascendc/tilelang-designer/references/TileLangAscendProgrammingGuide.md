@@ -21,6 +21,11 @@ This guide focuses on that programming model and covers:
 
 - Prefer `T.tile.*` APIs for compute whenever possible, and avoid scalar or element-by-element operations in hot paths.
 - Use `T.tile.broadcast` sparingly because it can consume large UB temporary space, and prefer row-wise or column-wise tile compute patterns when UB is constrained.
+- On the Vector side, in practice, you should copy inputs into UB and then cast them to `float32` at the beginning of `T.Scope("V")`, because this ensures better numerical stability and consistent behavior across the subsequent vector compute path.
+
+> **TileLang Compiler Limitations**
+>
+> TileLang Ascend compiler is immature. **Do not attempt to fix tail-block or UB-slice related issues** (e.g. dynamic `elems` in slice bounds). **Skip TileLang verification directly** and proceed to AscendC. TileLang is design-only, not a correctness gate.
 
 ## 2. Basic Structure
 

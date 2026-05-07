@@ -98,3 +98,15 @@ def optimized_elementwise(input_ptr, output_ptr, n_elements, BLOCK_SIZE: tl.cons
 ```
 
 编译器会自动将核内 for 循环进行多级流水处理。
+
+### 5. MishBackward Math Optimizer (数学近似优化)
+
+MishBackward的计算公式为：
+
+x_grad(x)=tanh(ln(ex+1))+s*(1-tanh2(ln(ex+1)))(注：s=(x*ex)/(ex+1))，这个公式的问题是直接算ex，x>0时，数值会过大，x<0时数值会过小；所以一般在实际计算时会做下列近似处理：
+
+* X>0时，tanh(ln(ex+1))≈(2*e^(-x) + 1) / (2*e^(-2x) + 2*e^(-x) + 1)，s=x / (1 + e^(-x))
+
+* X≤0时，tanh(ln(ex+1)) = (2*ex + e2x) / (2 + 2*ex + e2x)，s=(x*ex)/(ex+1)
+
+x_grad计算出后，与input_grad相乘得output_grad。

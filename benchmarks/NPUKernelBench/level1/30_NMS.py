@@ -4,12 +4,16 @@ import json
 import os
 
 class Model(nn.Module):
-    """
-    Model that performs Non-Maximum Suppression (NMS) on NPU.
-    Pytorch native implemention
+    def __init__(self):
+        super(Model, self).__init__()
+
     def forward(self, boxes: torch.Tensor, scores: torch.Tensor,
                 max_output_size: int, iou_threshold: float,
                 scores_threshold: float, pad_to_max_output_size: bool = False):
+        """
+        Performs Non-Maximum Suppression (NMS) on bounding boxes.
+        Pure PyTorch reference implementation.
+        """
         boxes_f32 = boxes.float()
         scores_f32 = scores.float()
 
@@ -18,15 +22,13 @@ class Model(nn.Module):
         filtered_scores = scores_f32[score_mask]
         original_indices = torch.where(score_mask)[0]
 
+        selected_indices = torch.zeros(max_output_size, dtype=torch.int32, device=boxes.device)
+
         if filtered_boxes.shape[0] == 0:
             num_selected = torch.tensor(0, dtype=torch.int32, device=boxes.device)
-            if pad_to_max_output_size:
-                selected_indices = torch.zeros(max_output_size, dtype=torch.int32, device=boxes.device)
-            else:
-                selected_indices = torch.tensor([], dtype=torch.int32, device=boxes.device)
             return selected_indices, num_selected
 
-        sorted_indices = torch.argsort(filtered_scores, descending=True)
+        sorted_indices = torch.argsort(filtered_scores, descending=True, stable=True)
         sorted_boxes = filtered_boxes[sorted_indices]
         sorted_original_indices = original_indices[sorted_indices]
 
@@ -45,7 +47,6 @@ class Model(nn.Module):
             if len(selected_indices_list) >= max_output_size:
                 break
 
-            # Vectorized IoU: current box vs all remaining unsuppressed boxes
             rest = torch.arange(i + 1, num_boxes, device=boxes.device)
             if rest.numel() == 0:
                 break
@@ -71,73 +72,42 @@ class Model(nn.Module):
 
         num_selected = len(selected_indices_list)
 
-        if pad_to_max_output_size:
-            selected_indices = torch.zeros(max_output_size, dtype=torch.int32, device=boxes.device)
-            if num_selected > 0:
-                selected_indices[:num_selected] = torch.tensor(selected_indices_list, dtype=torch.int32, device=boxes.device)
-        else:
-            if num_selected > 0:
-                selected_indices = torch.tensor(selected_indices_list, dtype=torch.int32, device=boxes.device)
-            else:
-                selected_indices = torch.tensor([], dtype=torch.int32, device=boxes.device)
+        if num_selected > 0:
+            selected_indices[:num_selected] = torch.tensor(
+                selected_indices_list, dtype=torch.int32, device=boxes.device
+            )
 
         num_selected_tensor = torch.tensor(num_selected, dtype=torch.int32, device=boxes.device)
 
         return selected_indices, num_selected_tensor
 
-    def _compute_iou(self, box1: torch.Tensor, box2: torch.Tensor) -> float:
-        x1_inter = max(box1[0].item(), box2[0].item())
-        y1_inter = max(box1[1].item(), box2[1].item())
-        x2_inter = min(box1[2].item(), box2[2].item())
-        y2_inter = min(box1[3].item(), box2[3].item())
 
-        inter_width = max(0.0, x2_inter - x1_inter)
-        inter_height = max(0.0, y2_inter - y1_inter)
-        inter_area = inter_width * inter_height
+def _make_legal_boxes(shape, dtype):
+    assert len(shape) == 2 and shape[1] == 4, f"boxes shape must be [N, 4], got {shape}"
+    n = shape[0]
 
-        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    raw = torch.randn(n, 2, 2, dtype=torch.float32)
+    pt_a = raw[:, 0, :]
+    pt_b = raw[:, 1, :]
 
-        union_area = area1 + area2 - inter_area
+    x1 = torch.minimum(pt_a[:, 0], pt_b[:, 0])
+    y1 = torch.minimum(pt_a[:, 1], pt_b[:, 1])
+    x2 = torch.maximum(pt_a[:, 0], pt_b[:, 0])
+    y2 = torch.maximum(pt_a[:, 1], pt_b[:, 1])
 
-        if union_area <= 0:
-            return 0.0
+    eps = 1e-3
+    x2 = torch.where(x2 - x1 < eps, x1 + eps, x2)
+    y2 = torch.where(y2 - y1 < eps, y1 + eps, y2)
 
-        iou = inter_area / union_area
-        return iou.item()
-    """
-    def __init__(self):
-        super(Model, self).__init__()
-
-    def forward(self, boxes: torch.Tensor, scores: torch.Tensor,
-                max_output_size: int, iou_threshold: float,
-                scores_threshold: float, pad_to_max_output_size: bool = False):
-        """
-        Performs Non-Maximum Suppression (NMS) on bounding boxes.
-
-        Args:
-            boxes (torch.Tensor): Bounding boxes tensor of shape (N, 4).
-            scores (torch.Tensor): Scores tensor of shape (N,).
-            max_output_size (int): Maximum number of output boxes.
-            iou_threshold (float): IoU threshold for suppression.
-            scores_threshold (float): Score threshold to filter boxes.
-            pad_to_max_output_size (bool, optional): Pad output to max_output_size.
-
-        Returns:
-            tuple: (selected_boxes_indices, num_selected_boxes)
-        """
-        import torch_npu
-        iou_threshold_tensor = torch.tensor(iou_threshold, dtype=torch.float32, device=boxes.device)
-        scores_threshold_tensor = torch.tensor(scores_threshold, dtype=torch.float32, device=boxes.device)
-        return torch_npu.npu_nms_v4(boxes, scores, max_output_size, iou_threshold_tensor,
-                                     scores_threshold_tensor, pad_to_max_output_size=pad_to_max_output_size)
+    boxes = torch.stack([x1, y1, x2, y2], dim=-1).to(dtype)
+    return boxes
 
 
 def get_input_groups():
     json_path = os.path.join(os.path.dirname(__file__), "30_NMS.json")
     with open(json_path, "r") as f:
         cases = [json.loads(line) for line in f if line.strip()]
-    
+
     input_groups = []
     for case in cases:
         inputs = case["inputs"]
@@ -146,16 +116,17 @@ def get_input_groups():
         max_output_size_info = inputs[2]
         iou_threshold_info = inputs[3]
         scores_threshold_info = inputs[4]
-        
+
         dtype_map = {
             "float32": torch.float32,
             "float16": torch.float16,
             "bfloat16": torch.bfloat16,
         }
         dtype = dtype_map[boxes_info["dtype"]]
-        
-        boxes = torch.randn(boxes_info["shape"], dtype=dtype)
+
+        boxes = _make_legal_boxes(boxes_info["shape"], dtype)
         scores = torch.randn(scores_info["shape"], dtype=dtype)
+
         max_output_size = max_output_size_info["value"]
         iou_threshold = iou_threshold_info["value"]
         scores_threshold = scores_threshold_info["value"]

@@ -73,7 +73,7 @@ def get_input_groups():
         cases = [json.loads(line) for line in f if line.strip()]
     
     input_groups = []
-    for case in cases:
+    for idx, case in enumerate(cases):
         inputs = case["inputs"]
         input_info = inputs[0]
         num_groups_info = inputs[1]
@@ -81,15 +81,20 @@ def get_input_groups():
         bias_info = inputs[3]
         eps_info = inputs[4]
         swish_scale_info = inputs[5]
-        
+
         dtype_map = {
             "float32": torch.float32,
             "float16": torch.float16,
             "bfloat16": torch.bfloat16,
         }
         dtype = dtype_map[input_info["dtype"]]
-        
-        inp = torch.randn(input_info["shape"], dtype=dtype)
+
+        if idx % 2 == 0:
+            mu = float(torch.empty(1).uniform_(-100, 100).item())
+            sigma = float(torch.empty(1).uniform_(1, 25).item())
+            inp = torch.normal(mu, sigma, input_info["shape"], dtype=dtype) + torch.ones(input_info["shape"], dtype=dtype)
+        else:
+            inp = torch.empty(input_info["shape"], dtype=dtype).uniform_(-5, 5) + torch.ones(input_info["shape"], dtype=dtype)
         num_groups = num_groups_info["value"]
         weight = torch.ones(weight_info["shape"], dtype=dtype)
         bias = torch.zeros(bias_info["shape"], dtype=dtype)

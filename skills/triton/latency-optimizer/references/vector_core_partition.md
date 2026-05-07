@@ -8,35 +8,54 @@
 |------|------|
 | Grid 远大于物理核数 | Kernel launch 开销大，调度开销大 |
 | Grid 远小于物理核数 | 硬件利用率低，算力浪费 |
-| Grid ≈ 物理核数 | **最优** |
+| Grid 大于实际需要（数据量小） | 部分核空转，产生不必要的调度开销 |
+| Grid ≈ min(实际需要, 物理核数) | **最优** |
+
+**关键洞察：** Grid 应该匹配"实际需要"和"物理核数"中的较小值。当数据量很小时，不需要启动全部物理核。
 
 ## 一、Grid 大小优化
 
 ### 问题：发射核数不合理
 
 ```python
-# 问题：Grid = (128,) 核数过多
+# 问题1：Grid = (128,) 核数过多，远超 48 核
 grid = (batch_size,)  # 如果 batch_size=128，远超 48 核
 kernel[grid](...)
 
-# 问题：Grid = (2,) 核数过少
+# 问题2：Grid = (2,) 核数过少
 grid = (batch_size // 64,)  # 如果 batch_size=128，只有 2 核
+kernel[grid](...)
+
+# 问题3：固定启动 48 核，但数据量只需要 1 个 block
+grid = (num_cores,)  # n_elements=100, BLOCK_SIZE=2048, 实际只需 1 个 block，却启动 48 个核
 kernel[grid](...)
 ```
 
-### 优化：匹配物理核数
+### 优化：动态匹配实际需要
+
+**推荐方案：根据实际 block 数量动态计算 grid**
 
 ```python
 # NPU 通常有 40 或 48 个物理核
 num_cores = 48
 
-# 方案1：固定核数
-grid = (num_cores,)
+# 计算总共需要多少个 block
+num_blocks = triton.cdiv(n_elements, BLOCK_SIZE)
 
-# 方案2：根据数据量调整
-grid = (triton.cdiv(total_work, work_per_core),)
-# 确保 grid ≤ num_cores
+# Grid 取实际需要 block 数和物理核数中的较小值
+# 避免小 shape 下启动过多核产生空转调度开销
+grid_size = min(num_blocks, num_cores)
+grid = (grid_size,)
 ```
+
+**对比：固定核数 vs 动态核数**
+
+| 场景 | n_elements | BLOCK_SIZE | num_blocks | 固定 grid=(num_cores,) | 动态 grid=min(num_blocks, num_cores) |
+|------|-----------|------------|-----------|----------------|------------------------------|
+| 极小 shape | 100 | 2048 | 1 | 47 核空转 | 1 核执行 |
+| 小 shape | 4096 | 2048 | 2 | 46 核空转 | 2 核执行 |
+| 中等 shape | 65536 | 2048 | 32 | 32 核工作，16 核空转 | 32 核执行 |
+| 大 shape | 1048576 | 2048 | 512 | 48 核工作（最优） | 48 核执行（最优） |
 
 ### 案例：Softmax 算子
 
@@ -119,11 +138,11 @@ BLOCK_SIZE = 32768  # 128KB，接近上限
 
 | BLOCK_SIZE | 内存占用 (float32) | 安全性 |
 |-----------|------------------|--------|
-| 4096 | 16 KB | ✅ 非常安全 |
-| 8192 | 32 KB | ✅ 安全 |
-| 16384 | 64 KB | ✅ 安全 |
-| 32768 | 128 KB | ⚠️ 接近上限 |
-| 49152 | 192 KB | ❌ 可能溢出 |
+| 4096 | 16 KB | 非常安全 |
+| 8192 | 32 KB | 安全 |
+| 16384 | 64 KB | 安全 |
+| 32768 | 128 KB | 接近上限 |
+| 49152 | 192 KB | 可能溢出 |
 
 **原则：在不溢出的前提下，尽量使用大的 BLOCK_SIZE**
 
@@ -346,14 +365,15 @@ def softmax_kernel(
 
 | 策略 | 适用场景 | Grid 大小 |
 |------|---------|---------|
-| **一维分核** | 单维度处理（如逐行） | (N / BLOCK,) |
+| **一维分核** | 单维度处理（如逐行） | min(N / BLOCK, num_cores) |
 | **二维分核** | 矩阵运算（如 matmul） | (M / BM, N / BN) |
-| **多行并行** | 行级 reduce（如 softmax） | (M / ROWS_PER_BLOCK,) |
+| **多行并行** | 行级 reduce（如 softmax） | min(M / ROWS_PER_BLOCK, num_cores) |
 
 ### 选择依据
 
 1. **计算数据量与核数匹配**
    - 总数据量 / 每个 program 处理量 ≈ 物理核数
+   - 但 grid 不超过实际需要的 block 数
 
 2. **避免过度细粒度**
    - 每个 program 处理足够数据（至少几千元素）
@@ -361,38 +381,6 @@ def softmax_kernel(
 3. **考虑内存访问模式**
    - 连续访问优于随机访问
    - 2D 加载优于多次 1D 加载
-
-## 常见错误
-
-### 错误 1：Grid 远超物理核数
-
-```python
-# ❌ 错误：Grid = (1024,) 远超 48 核
-grid = (batch_size * height * width // BLOCK,)
-
-# ✅ 正确：Grid ≈ 48
-grid = (num_cores,)
-```
-
-### 错误 2：Tile 过小
-
-```python
-# ❌ 错误：BLOCK_SIZE = 64，UB 利用率低
-BLOCK_SIZE = 64  # 只用 256 bytes
-
-# ✅ 正确：BLOCK_SIZE = 8192，充分利用 UB
-BLOCK_SIZE = 8192  # 用 32KB
-```
-
-### 错误 3：忽略 UB 上限
-
-```python
-# ❌ 错误：BLOCK_SIZE 过大导致 UB 溢出
-BLOCK_SIZE = 65536  # 256KB > 192KB UB
-
-# ✅ 正确：确保不溢出
-BLOCK_SIZE = 32768  # 128KB < 192KB UB
-```
 
 ## 五、NPU vs GPU 分核语义差异
 
@@ -402,12 +390,12 @@ BLOCK_SIZE = 32768  # 128KB < 192KB UB
 |------|-----|-----|
 | Grid 含义 | 逻辑并行实例数 | 直接映射到物理核 |
 | 超额订阅 | SM 会自动调度 | AI Core 按顺序执行 |
-| 最优 Grid | 可远大于 SM 数 | 应接近 AI Core 数 |
+| 最优 Grid | 可远大于 SM 数 | min(实际需要, AI Core 数) |
 | 多核利用率 | SM 动态调度 | 静态绑定 |
 
 **GPU 行为：** Grid 可以远大于 SM 数，GPU 会自动调度，多余的 block 在 SM 上排队等待。
 
-**NPU 行为：** Grid 直接映射到 AI Core，超额部分串行执行，导致调度开销累积。
+**NPU 行为：** Grid 直接映射到物理核，超额部分串行执行，导致调度开销累积。因此 Grid 应取 `min(实际需要的 block 数, 物理核数)`。
 
 ### 案例对比
 
@@ -418,8 +406,13 @@ BLOCK_SIZE = 32768  # 128KB < 192KB UB
 grid = (128,)  # GPU: 128 block 在 SM 上动态调度，效率高
               # NPU: 128 个核串行执行，调度开销大
 
-# NPU 优化风格
+# NPU 优化风格（大数据量）
 grid = (48,)   # NPU: 48 核并行，每个处理 128/48 ≈ 3 个 batch
+
+# NPU 优化风格（小数据量，只需 2 个 block）
+num_blocks = triton.cdiv(n_elements, BLOCK_SIZE)  # = 2
+grid_size = min(num_blocks, 48)  # = 2
+grid = (grid_size,)  # 只启动 2 个核，避免 46 个核空转
 ```
 
 ## 六、Tiling 策略选择
@@ -469,17 +462,19 @@ def gelu_kernel_better(
         y = x * 0.5 * (1.0 + tl.erf(x * 0.7071067811865475))
         tl.store(y_ptr + offs, y, mask=mask)
 
-# Grid = (48,)，直接使用物理核数
-# 每个核处理 n_elements / 48 个数据
+# 动态 grid：根据实际需要 block 数和物理核数取较小值
+num_blocks = triton.cdiv(n_elements, BLOCK_SIZE)
+grid_size = min(num_blocks, 48)
+grid = (grid_size,)
 ```
 
 **收益对比：**
 
 | 指标 | Easy Kernel | Better Kernel |
 |------|-------------|---------------|
-| Grid 大小 | 131072 | 48 |
-| 核数利用率 | 过饱和，调度开销大 | 最优 |
-| 调度开销 | 131072 次 kernel launch | 48 次内部循环 |
+| Grid 大小 | 131072 | min(num_blocks, 48) |
+| 核数利用率 | 过饱和，调度开销大 | 按需分配，避免空转 |
+| 调度开销 | 131072 次 kernel launch | 动态控制 |
 
 ### Tiling 策略选择原则
 
@@ -490,9 +485,9 @@ def gelu_kernel_better(
 # 适用：n_elements < 48 * BLOCK_SIZE
 
 # 策略 2：内部 tiling（适合大数据量）
-# Grid = (num_cores,)
+# Grid = min(triton.cdiv(n_elements, BLOCK_SIZE), num_cores)
 # 每个 program 内部循环处理
-# 适用：n_elements >> 48 * BLOCK_SIZE
+# 适用：所有场景（推荐）
 ```
 
 ## 七、编译优化选项
@@ -534,50 +529,64 @@ kernel[grid](
 ### 错误 1：Grid 远超物理核数
 
 ```python
-# ❌ 错误：Grid = (1024,) 远超 48 核
+# 错误：Grid = (1024,) 远超 48 核
 grid = (batch_size * height * width // BLOCK,)
 
-# ✅ 正确：Grid ≈ 48
-grid = (num_cores,)
+# 正确：Grid = min(实际需要, 48)
+num_blocks = triton.cdiv(total_work, BLOCK_SIZE)
+grid = (min(num_blocks, num_cores),)
 ```
 
-### 错误 2：Tile 过小
+### 错误 2：固定启动全部核数（小 shape 场景）
 
 ```python
-# ❌ 错误：BLOCK_SIZE = 64，UB 利用率低
+# 错误：无论数据量大小，固定启动 48 核
+# n_elements = 100 时，num_blocks = 1，却启动 48 个核，47 个核空转
+grid = (num_cores,)
+
+# 正确：根据实际 block 数量动态决定
+num_blocks = triton.cdiv(n_elements, BLOCK_SIZE)
+grid_size = min(num_blocks, num_cores)
+grid = (grid_size,)
+```
+
+### 错误 3：Tile 过小
+
+```python
+# 错误：BLOCK_SIZE = 64，UB 利用率低
 BLOCK_SIZE = 64  # 只用 256 bytes
 
-# ✅ 正确：BLOCK_SIZE = 8192，充分利用 UB
+# 正确：BLOCK_SIZE = 8192，充分利用 UB
 BLOCK_SIZE = 8192  # 用 32KB
 ```
 
-### 错误 3：忽略 UB 上限
+### 错误 4：忽略 UB 上限
 
 ```python
-# ❌ 错误：BLOCK_SIZE 过大导致 UB 溢出
+# 错误：BLOCK_SIZE 过大导致 UB 溢出
 BLOCK_SIZE = 65536  # 256KB > 192KB UB
 
-# ✅ 正确：确保不溢出
+# 正确：确保不溢出
 BLOCK_SIZE = 32768  # 128KB < 192KB UB
 ```
 
-### 错误 4：GPU 风格分核
+### 错误 5：GPU 风格分核
 
 ```python
-# ❌ 错误：GPU 风格，Grid 远大于核数
+# 错误：GPU 风格，Grid 远大于核数
 grid = (n_elements // 1024,)  # 可能是 131072
 
-# ✅ 正确：NPU 风格，Grid 匹配物理核数
-grid = (48,)
-# 每个 program 内部循环处理大数据
+# 正确：NPU 风格，Grid 按需匹配
+num_blocks = triton.cdiv(n_elements, BLOCK_SIZE)
+grid = (min(num_blocks, num_cores),)
 ```
 
 ## 总结
 
 | 优化点 | 原则 | 方法 |
 |-------|------|------|
-| Grid 大小 | ≈ 物理核数 (40-48) | 调整每个 program 处理的数据量 |
+| Grid 大小 | min(实际需要, 物理核数) | `grid_size = min(triton.cdiv(n, BLOCK), num_cores)` |
 | Tile 大小 | 接近但不超过 UB | BLOCK_SIZE ≤ 49152 (float32) |
 | 多行并行 | 减少 Grid 大小 | 2D 向量化加载 |
-| Tiling 策略 | 大数据用内部 tiling | Grid=48，内部循环 |
+| Tiling 策略 | 大数据用内部 tiling | 动态 grid，内部循环 |
 | 编译选项 | 内存密集用 multibuffer | multibuffer=True |

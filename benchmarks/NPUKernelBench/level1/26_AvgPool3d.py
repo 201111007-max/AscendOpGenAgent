@@ -55,7 +55,7 @@ def get_input_groups():
         }
         dtype = dtype_map[x_info["dtype"]]
         
-        x = torch.randn(x_info["shape"], dtype=dtype)
+        x = torch.randn(x_info["shape"], dtype=dtype) + torch.ones(x_info["shape"], dtype=dtype)
         kernel_size = kernel_size_info["value"]
         stride = stride_info["value"]
         padding = padding_info["value"]

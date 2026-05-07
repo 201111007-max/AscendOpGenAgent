@@ -90,8 +90,13 @@ class Model(nn.Module):
         idx_tensor = torch.tensor(idx_list, dtype=torch.long, device=grid_thw.device)
         weight_tensor = torch.tensor(weight_list, dtype=dtype, device=grid_thw.device)
 
-        pos_embeds = pos_embed_weight[idx_tensor] * weight_tensor[:, :, None]
-        patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
+        if dtype == torch.bfloat16:
+            pos_embeds = pos_embed_weight[idx_tensor].float() * weight_tensor[:, :, None].float()
+            patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
+            patch_pos_embeds = patch_pos_embeds.to(dtype)
+        else:
+            pos_embeds = pos_embed_weight[idx_tensor] * weight_tensor[:, :, None]
+            patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
 
         patch_pos_embeds = patch_pos_embeds.split([h.item() * w.item() for h, w in zip(grid_hs, grid_ws)])
 

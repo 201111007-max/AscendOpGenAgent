@@ -93,7 +93,7 @@ argument-hint: >
 
 ## 汇总表报告
 
-- 说明: 延迟单位为 ms，按 performance-analyzer 的 mean 统计；加速比 =  PyTorch 参考延迟/生成 AscendC 代码延迟 。
+- 说明: 延迟单位为 ms，按 performance-analyzer 的 mean 统计；加速比 =  PyTorch 参考延迟/生成 AscendC 代码延迟 。加速比>0.6性能0.6x pytorch填是，否则填否。性能0.8x pytorch同理。
 
 | Level | Problem ID | 算子名称 | 算子类型 | 编译通过 | 精度正确 | PyTorch 参考延迟 | 生成AscendC代码延迟 | 加速比 | 最终状态 | 精度正确 | 性能0.6x pytorch | 性能0.8x pytorch |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
