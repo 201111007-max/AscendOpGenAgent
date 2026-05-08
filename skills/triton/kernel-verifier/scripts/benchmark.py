@@ -336,7 +336,7 @@ def measure_single(
         print(f"torch_npu.profiler 获取数据失败: {e}，使用兜底测试机制...")
         operators, latency_ms = None, None
 
-    if operators is None or latency_ms is None or latency_ms <= 0.0001:
+    if operators is None or latency_ms is None:
         print(f"[FALLBACK_TRIGGER] 触发条件: operators={operators is None}, latency_ms={latency_ms}, 条件结果=True")
         print(f"警告: profiler 无法获取有效时延数据（当前:{latency_ms} ms），返回 NaN")
         peak_memory = torch.npu.max_memory_allocated() / (1024 * 1024)
