@@ -42,8 +42,16 @@ def kernel(A, B, C, M, N,
 ```
 
 **判断逻辑**：
-- 如果代码中存在运行时不变化的固定参数（如 stride、固定数值、BLOCK_SIZE等）未声明为 `tl.constexpr` → 涉及
-- 如果所有固定参数都已正确声明为 `tl.constexpr` → 不涉及，跳过
+1. 遍历 kernel 参数列表，排除明确属于运行时变量的参数：
+  - 张量数据指针（如 input_ptr, output_ptr）
+  - 动态维度（如 batch size M/N/K、序列长度 seq_len）
+  - 标量动态值（如缩放因子 scale，若每轮调用不同）
+2. 对剩余参数逐一检查是否满足"单次 kernel 启动后不变"：
+  - stride 参数（stride_am, stride_bn 等）→ 涉及 
+  - 固定索引（如 lse_idx, head_idx_offset）→ 涉及
+  - BLOCK_SIZE / HEAD_DIM / N_ROUNDED 等配置参数 → 涉及
+3. 若第2步中任一参数未声明 `tl.constexpr` → 命中，进入参考文档
+4. 若第2步中无参数或已全部声明 `tl.constexpr` → 不涉及，跳过
 
 **命中条件**：代码特征满足上述典型代码特征之一，且适用条件成立
 
