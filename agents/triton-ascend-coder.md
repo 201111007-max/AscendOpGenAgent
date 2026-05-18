@@ -327,11 +327,14 @@ while iteration < max_iterations:
 
 ```
 opt_iteration = 0
+max_opt_iterations = 10          # 最大优化迭代次数
+target_speedup = 0.8             # 目标几何平均加速比
 best_code = ""
 best_speedup = 0.0
 baseline_code = Phase 3 产出的 generated_code.py
 phase3_last_iter = Phase 3 最后一次验证通过的 iter 编号  # 见 3.3 的记录
 improvement_made = false
+target_reached = false           # 是否达到目标加速比
 ```
 
 ### Phase 4 入口硬断言（强制）
@@ -356,7 +359,7 @@ improvement_made = false
 ### 迭代循环
 
 ```
-while True:
+while opt_iteration < max_opt_iterations:
 
     ── 4.1 代码分析 + 优化策略 + 代码重写 ────────────
     调用 latency-optimizer skill
@@ -449,14 +452,21 @@ while True:
     - 若 `baseline_speedup` 或 `optimized_speedup` 任一为 `null`（全部 shape 异常，
       无几何平均可算），直接判定为优化失败（拒绝优化），跳到 4.5 A 类分析。
 
+    optimized_speedup >= target_speedup:
+      → 达到目标加速比，优化成功
+      → 更新 best_code / best_speedup
+      → improvement_made = true
+      → target_reached = true
+      → break（直接退出循环）
+
     optimized_speedup > baseline_speedup:
-      → 优化成功（几何平均加速比有提升）
+      → 有提升但未达目标
       → 更新 best_code / best_speedup
       → improvement_made = true
       → opt_iteration++，continue
 
     否则（含相等）:
-      → 视为无提升，opt_iteration++，continue
+      → 无提升，opt_iteration++，continue
 
     ── 4.5 分析决策 (验证失败时) ─────────────────────
     A 类 (优化引入逻辑错误) → 回退，调整策略，continue
@@ -467,20 +477,24 @@ while True:
     continue
 
     ── 4.6 终局判定 ──────────────────────────────────
-    无优化点时退出判定：
+    循环退出后的终局判定：
+
+    target_reached == true:
+      → 达到目标加速比，优化成功，进入 Phase 5
 
     improvement_made == true:
-      → 优化成功，break，进入 Phase 5
+      → 有提升但未达目标（迭代耗尽），进入 Phase 5
 
     improvement_made == false:
-      → 优化失败（做完所有尝试后没有效果），break，进入 Phase 5
+      → 优化失败（无提升），进入 Phase 5
 ```
 
 ### Phase 4 终局处理
 
-- Phase 4 优化成功（improvement_made == true）→ 以 `optimized_code.py` 为最终结果
-- Phase 4 优化失败（improvement_made == false，做完所有尝试后没有效果）→ 以 Phase 3 的 `generated_code.py` 为最终结果
-- 两种情况都进入 Phase 5
+- Phase 4 达到目标（target_reached == true）→ 以 best_code（达到目标的 optimized_code.py）为最终结果
+- Phase 4 有提升但未达目标（improvement_made == true, target_reached == false）→ 以 best_code 为最终结果
+- Phase 4 优化失败（improvement_made == false）→ 以 Phase 3 的 `generated_code.py` 为最终结果
+- 三种情况都进入 Phase 5
 
 ---
 
@@ -488,14 +502,17 @@ while True:
 
 **选择最终代码**：
 
-- Phase 4 成功 → `optimized_code.py`
-- Phase 4 失败 → Phase 3 的 `generated_code.py`
+- Phase 4 达到目标（target_reached == true）→ best_code（达到目标的 optimized_code.py）
+- Phase 4 有提升但未达目标（improvement_made == true, target_reached == false）→ best_code
+- Phase 4 失败（improvement_made == false）→ Phase 3 的 `generated_code.py`
 
 复制最终代码到 `{工作目录}/{op_name}_generated.py`。
 
 **写入 `{工作目录}/report.md`**：
 - 基本信息：arch、工作目录
 - 生成结果：迭代次数、最终版本来源
+- **目标加速比**：target_speedup = 0.8，是否达到（target_reached）
+- **实际最佳加速比**：best_speedup（保留 4 位小数）
 - **Shape 通过率（以 verify 为准）**：`passed_cases / total_cases` 必须从
   `output/iter_{phase3_last_iter}/verify/verify_result.json` 读取。
   ⚠️ **禁止**从 `perf_result.json` 取 passed_cases —— 后者是"benchmark exec 成功数"
@@ -532,6 +549,9 @@ while True:
   "gen_iterations": 2,
   "opt_iterations": 1,
   "optimized": true,
+  "target_speedup": 0.8,
+  "target_reached": true,
+  "best_speedup": 0.85,
   "perf_method": "profiler",
   "skill_path": ".claude/skills/kernel-verifier",
   "perf_data": {
@@ -556,6 +576,9 @@ while True:
 ```
 
 **字段说明**：
+- `target_speedup`: 目标几何平均加速比，固定为 0.8
+- `target_reached`: 是否达到目标加速比（optimized_speedup >= target_speedup）
+- `best_speedup`: Phase 4 历史最佳几何平均加速比
 - `speedup_vs_torch`: **几何平均**聚合 = `(∏ s_i)^(1/n)`（仅对通过且 `s_i` 为有限正数的 shape）；全部异常时为 `null`
 - `speedup_vs_baseline`: Phase 4 时 = `optimized.speedup_vs_torch / baseline.speedup_vs_torch`（两个几何平均之比）
 - `passed_cases` / `failed_cases`: 多 shape 时的通过 / 失败计数（策略 A 成功时应为 total / 0）
@@ -618,13 +641,35 @@ Phase 4 入口断言失败（Phase 3 闸门被违反）：
 }
 ```
 
-Phase 4 失败时（Phase 3 成功，优化未成功）：
+Phase 4 有提升但未达目标时：
 ```json
 {
   "success": true,
   "gen_iterations": 2,
-  "opt_iterations": 3,
+  "opt_iterations": 10,
+  "optimized": true,
+  "target_speedup": 0.8,
+  "target_reached": false,
+  "best_speedup": 0.65,
+  "perf_method": "profiler",
+  "skill_path": ".claude/skills/kernel-verifier",
+  "perf_data": {
+    "avg_latency_ms": 0.8000,
+    "speedup_vs_torch": 1.5000
+  }
+}
+```
+
+Phase 4 失败时（Phase 3 成功，优化无提升）：
+```json
+{
+  "success": true,
+  "gen_iterations": 2,
+  "opt_iterations": 10,
   "optimized": false,
+  "target_speedup": 0.8,
+  "target_reached": false,
+  "best_speedup": 0.0,
   "perf_data": {
     "avg_latency_ms": 0.8000,
     "speedup_vs_torch": 1.5000
