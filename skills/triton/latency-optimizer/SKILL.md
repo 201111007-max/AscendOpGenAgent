@@ -42,8 +42,16 @@ def kernel(A, B, C, M, N,
 ```
 
 **判断逻辑**：
-- 如果代码中存在运行时不变化的固定参数（如 stride、固定数值、BLOCK_SIZE等）未声明为 `tl.constexpr` → 涉及
-- 如果所有固定参数都已正确声明为 `tl.constexpr` → 不涉及，跳过
+1. 遍历 kernel 参数列表，排除明确属于运行时变量的参数：
+  - 张量数据指针（如 input_ptr, output_ptr）
+  - 动态维度（如 batch size M/N/K、序列长度 seq_len）
+  - 标量动态值（如缩放因子 scale，若每轮调用不同）
+2. 对剩余参数逐一检查是否满足"单次 kernel 启动后不变"：
+  - stride 参数（stride_am, stride_bn 等）→ 涉及 
+  - 固定索引（如 lse_idx, head_idx_offset）→ 涉及
+  - BLOCK_SIZE / HEAD_DIM / N_ROUNDED 等配置参数 → 涉及
+3. 若第2步中任一参数未声明 `tl.constexpr` → 命中，进入参考文档
+4. 若第2步中无参数或已全部声明 `tl.constexpr` → 不涉及，跳过
 
 **命中条件**：代码特征满足上述典型代码特征之一，且适用条件成立
 
@@ -169,6 +177,10 @@ else:
 is_invalid = tok < 0  # int 类型比较，退化为标量
 c = a // b  # int 类型除法，退化为标量
 d = a % b   # int 类型取余，退化为标量
+
+# 特征 5：atomic_* 标量操作
+for idx in range(0, BLOCK_SIZE):
+    tl.atomic_add(output_ptr + idx, block_sum)  # 标量的原子加
 ```
 
 **判断逻辑**：
@@ -176,6 +188,7 @@ d = a % b   # int 类型取余，退化为标量
 - 检查是否存在标量累加器（如 `sum_val = 0.0`）
 - 检查是否存在 `if-else` 控制流处理向量数据
 - 检查是否存在 `int32/int64` 类型的比较、除法、取余操作
+- 检查是否存在 `atomic_add` 这一类的 `atomic_*` 标量操作
 - 如果存在以上任一情况 → 涉及
 - 如果所有操作都已使用向量形式 → 不涉及，跳过
 
@@ -407,9 +420,42 @@ kernel[grid](..., BLOCK_M=128, BLOCK_N=128)
 
 ---
 
+### 优化点 13：混合策略自动选择
+
+**适用条件**：同一算子在不同 shape 或数据类型下需要不同优化策略
+
+**典型代码特征**：
+```python
+# 问题：单一策略无法覆盖所有 shape
+if some_condition:
+    # 策略 A: 适合小 shape
+    kernel_a[grid](...)
+else:
+    # 策略 B: 适合大 shape
+    kernel_b[grid](...)
+```
+
+**判断逻辑**：
+- 检查是否存在 shape 相关的条件分支选择不同 kernel
+- 检查是否存在数据类型相关的条件分支选择不同策略
+- 检查不同策略是否针对不同的性能瓶颈（如 small grid vs large grid）
+- 若存在 → 涉及
+
+**参考策略**：
+- small batch / small groups → 并行规约（atomic_add）
+- large batch / large groups → 原始规约（避免 atomic 开销）
+- fp32 → 禁用改变求和顺序的优化
+- fp16/bf16 → 可启用并行优化
+
+**命中条件**：代码中存在 shape 或数据类型相关的条件分支选择不同 kernel 或策略
+
+**参考文档**：`references/mixed_strategy.md`
+
+---
+
 ## 优化流程
 ```
-1. 按顺序检查优化点 1 → 2 → 3 → ... → 12
+1. 按顺序检查优化点 1 → 2 → 3 → ... → 13
 2. 对于当前优化点，先判断是否命中（代码特征满足 + 适用条件成立）：
    - 未命中 → 跳过，检查下一优化点
    - 命中 → 参考对应文档，应用优化策略
@@ -458,4 +504,5 @@ kernel[grid](..., BLOCK_M=128, BLOCK_N=128)
 | 循环不变量外提 | `references/loop-invariant-hoisting.md` |
 | Load 指令重排序 | `references/load-order.md` |
 | Autotune 自动调优 | `references/autotune.md` |
+| 混合策略自动选择 | `references/mixed_strategy.md` |
 | 代码规范检查 | `references/checklist.md` |
