@@ -330,12 +330,14 @@ def check_forbidden_torch_ops(forward_node):
             continue
 
         # --- tensor 方法计算操作 ---
-        if attr in FORBIDDEN_TENSOR_METHODS:
+        # `qual is None` 表示 bare-name 调用（如 `max(64, n)` 的 Python 内建），
+        # 不是 tensor 方法 — 跳过避免误伤 BLOCK_SIZE 这类标量 shape 数学。
+        if qual is not None and attr in FORBIDDEN_TENSOR_METHODS:
             # 排除已知安全的 qual（torch/F/triton 已在上面处理）
             if qual not in ("torch", "F", "triton", "functional", "torch.nn.functional", "nn.functional"):
                 violations.append({
                     "line": node.lineno,
-                    "call": f"{qual}.{attr}()" if qual else f"{attr}()",
+                    "call": f"{qual}.{attr}()",
                     "reason": f"{attr} 是计算操作，必须在 Triton kernel 中实现",
                 })
             continue
