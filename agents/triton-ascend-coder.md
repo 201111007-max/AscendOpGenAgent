@@ -339,7 +339,13 @@ while iteration < max_iterations:
 
 ```
 opt_iteration = 0
-max_opt_iterations = 10          # 最大优化迭代次数
+# max_opt_iterations 动态计算指令：
+# Agent 必须在 Phase 4 开始时执行以下步骤：
+# 1. 使用 Read 工具读取 .claude/skills/latency-optimizer/SKILL.md
+# 2. 统计文本中 "### 优化点" 出现的次数（即为优化点个数）
+# 3. 计算 max_opt_iterations = 优化点个数 + 1
+# 4. 若读取失败、文件不存在或统计失败，使用默认值 max_opt_iterations = 20
+max_opt_iterations = <由 Agent 按上述指令运行时计算>
 target_speedup = 0.8             # 目标几何平均加速比
 best_code = ""
 best_speedup = 0.0
@@ -497,15 +503,15 @@ while opt_iteration < max_opt_iterations:
     improvement_made == true:
       → 有提升但未达目标（迭代耗尽），进入 Phase 5
 
-    improvement_made == false:
-      → 优化失败（无提升），进入 Phase 5
+    improvement_made == false 且 opt_iteration >= max_opt_iterations:
+      → 优化失败（无提升，且迭代次数耗尽），进入 Phase 5
 ```
 
 ### Phase 4 终局处理
 
 - Phase 4 达到目标（target_reached == true）→ 以 best_code（达到目标的 optimized_code.py）为最终结果
 - Phase 4 有提升但未达目标（improvement_made == true, target_reached == false）→ 以 best_code 为最终结果
-- Phase 4 优化失败（improvement_made == false）→ 以 Phase 3 的 `generated_code.py` 为最终结果
+- Phase 4 优化失败（improvement_made == false 且 opt_iteration >= max_opt_iterations）→ 以 Phase 3 的 `generated_code.py` 为最终结果
 - 三种情况都进入 Phase 5
 
 ---
@@ -788,7 +794,7 @@ agent 收到 exit 2 时，必须按下表把它**等价映射**到对应 verify 
 |------|------|
 | GPU Kernel 模式 | `.pt` 必须与 `.py` 同名同目录；`vllm_gpu_perf.csv` 向上查找最多 3 级 |
 | Phase 3 最大迭代 | 5 次，禁止超出 |
-| Phase 4 迭代策略 | 不做最大迭代次数限制，直到 latency-optimizer 报告无更多优化点则退出 |
+| Phase 4 迭代策略 | max_opt_iterations = latency-optimizer 优化点个数 + 1，达到上限后，或者直到 latency-optimizer 报告无更多优化点则退出 |
 | Phase 4 成功底线 | 性能不劣化（speedup_vs_baseline ≥ 1.0） |
 | Phase 4 退出判定 | 有效果（speedup_vs_baseline ≥ 1.0）则成功；做完所有尝试后无效果则失败 |
 | Phase 4 基线复用 | 4.2/4.3 的基线侧 verify_result_baseline.json 和 baseline_perf_result.json 必须从 Phase 3 iter_{phase3_last_iter} 复制，禁止对基线代码重跑 verify.py 或 benchmark.py（基线代码与 Phase 3 generated_code.py 完全一致，重复执行只浪费时间） |
