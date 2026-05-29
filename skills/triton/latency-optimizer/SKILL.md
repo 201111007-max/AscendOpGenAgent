@@ -238,12 +238,13 @@ x_cumsum = tl.cumsum(x_1d, axis=0)  # 一维张量，或 cumDim 是 lastDim
 
 ---
 
-### 优化点 7：Pass 合并优化
+### 优化点 7：Pass 消除合并优化
 
 **适用条件**：代码中存在多次遍历相同数据计算不同统计量
 
 **典型代码特征**：
 ```python
+# 特征 1：多个独立循环遍历相同数据
 # Pass 1: 计算 mean
 for ...:
     data = tl.load(...)
@@ -258,15 +259,30 @@ for ...:
 for ...:
     data = tl.load(...)  # 第三次加载
     tl.store(...)
+
+# 特征 2：kernel调用侧未根据实际 N 自适应计算 BLOCK_SIZE，而是传入固定值（如BLOCK_SIZE=1024）
+@triton.jit
+def kernel(..., N, BLOCK_SIZE: tl.constexpr):
+    for n_start in range(0, N, BLOCK_SIZE):  # 当 BLOCK_SIZE >= N 时可消除循环
+        ...
+
+kernel(..., N, BLOCK_SIZE=1024)
 ```
 
 **判断逻辑**：
+- 检查是否可以通过自适应计算 `BLOCK_SIZE` 消除循环：
+  - 如果 `BLOCK_SIZE` 当前是固定的 `tl.constexpr` 或者调用侧传入了固定值，而实际数据维度 `N` 是变量
+  - **无论当前 BLOCK_SIZE 是否已 >= N**：
+    - 若当前 BLOCK_SIZE < N：令 `BLOCK_SIZE = triton.next_power_of_2(N)` 可使得 `range(0, N, BLOCK_SIZE)` 从多次迭代变为仅迭代一次
+    - **若当前 BLOCK_SIZE 已 >= N：循环虽然只迭代一次，但固定 BLOCK_SIZE 在 N 较小时会产生大量无效 mask 计算（`tl.arange(0, 1024)` 仅前 64 个有效），浪费 Vector 单元周期，且可能占用过多 UB 影响并行度。必须将 BLOCK_SIZE 改为自适应计算。**
+  - 若满足 UB 约束（`BLOCK_SIZE * dtype_size * (input + output + 中间变量峰值) <= 192KB`）
+  - → 涉及，**必须同时执行：(a) 消除循环；(b) 将 `BLOCK_SIZE` 从固定值改为 Python 调用侧自适应计算后传入。二者缺一不可，禁止只做循环消除而保留固定 BLOCK_SIZE。**
 - 检查是否存在多个独立的循环遍历相同数据
-- 检查是否可以同时计算多个统计量（如 sum + sum_sq 可同时计算 mean + var）
-- 如果存在多次遍历且可合并 → 涉及
+  - 检查是否可以同时计算多个统计量（如 sum + sum_sq 可同时计算 mean + var）
+  - 如果存在多次遍历且可合并 → 涉及
 - 如果只有单次遍历，或统计量之间有依赖无法合并 → 不涉及，跳过
 
-**命中条件**：代码中存在多次遍历相同数据，且可以合并计算
+**命中条件**：代码中存在多次遍历相同数据，可通过自适应计算 BLOCK_SIZE 实现循环消除；或者可以对多次遍历进行合并计算
 
 **参考文档**：`references/pass-merge.md`
 
@@ -498,7 +514,7 @@ x = (a + b) * m.to(tl.float32)  # 冗余：边界处 a+b 已是 0
 | 离散访存优化 | `references/discrete_memory_access.md` |
 | Scalar 转 Vector 优化 | `references/scalar_to_vector.md` |
 | 避免向量API标量降级 | `references/avoid_scalar_lowering.md` |
-| Pass 合并优化 | `references/pass-merge.md` |
+| Pass 消除合并优化 | `references/pass-merge.md` |
 | 维度合并优化 | `references/dimension-merge.md` |
 | Libdevice 函数使用 | `references/libdevice-usage.md` |
 | 循环不变量外提 | `references/loop-invariant-hoisting.md` |
