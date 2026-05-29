@@ -477,6 +477,14 @@ x = (a + b) * m.to(tl.float32)  # 冗余：边界处 a+b 已是 0
 ```
 - 一次只能参考一个文档
 
+### 特殊优化模式：Ascend Pooling 算子系统性优化
+
+当算子为 Pooling 类（AvgPool/MaxPool，2D/3D）时，应在完成基础优化后，加载 `references/ascend-pooling-optimization.md`。该文档覆盖从访存模式、标量消除、编译策略、布局转换、边界检查消除、BLOCK 尺寸选择到 2D Tiling 的 **7 个 Phase** 系统性优化指南。
+
+**触发条件**：算子名包含 `Pool`（MaxPool/AvgPool, 2D/3D）
+
+**使用方式**：按 Phase 1→2→3→...→7 顺序逐一检查和应用，每个 Phase 独立验证精度和性能。
+
 ## 优化验证规则
 
 **⚠️ 强制要求：在进行任何精度验证或性能验证之前，必须先执行 checklist 检查，确保所有代码规范都已满足。验证流程如下：**
@@ -505,4 +513,5 @@ x = (a + b) * m.to(tl.float32)  # 冗余：边界处 a+b 已是 0
 | Load 指令重排序 | `references/load-order.md` |
 | Autotune 自动调优 | `references/autotune.md` |
 | 消除冗余的边界运算 | `references/redundant_boundary_operation.md` |
+| Ascend Pooling 系统性优化 | `references/ascend-pooling-optimization.md` |
 | 代码规范检查 | `references/checklist.md` |
