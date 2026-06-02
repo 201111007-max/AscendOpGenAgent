@@ -39,7 +39,7 @@ ALLOWED_TENSOR_METHODS = {
     "is_contiguous", "data_ptr", "element_size", "storage_offset",
     # 布局操作（不执行计算）
     "contiguous", "to", "view", "view_as", "reshape",
-    "permute", "transpose", "expand", "expand_as",
+    "transpose", "expand", "expand_as",
     "flatten", "unflatten", "unsqueeze", "squeeze",
     "narrow", "clone", "detach", "t",
     "type", "float", "half", "bfloat16", "int", "long", "bool", "double",
