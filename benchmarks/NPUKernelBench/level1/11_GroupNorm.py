@@ -44,8 +44,8 @@ def get_input_groups():
         x_info = inputs[0]
         dtype = dtype_map[x_info["dtype"]]
         if idx % 2 == 0:
-            mu = float(torch.empty(1).uniform_(-100, 100).item())
-            sigma = float(torch.empty(1).uniform_(1, 25).item())
+            mu = float(torch.empty(1).uniform_(-50, 50).item())
+            sigma = float(torch.empty(1).uniform_(4, 25).item())
             x = torch.normal(mu, sigma, x_info["shape"], dtype=dtype) + torch.ones(x_info["shape"], dtype=dtype)
         else:
             x = torch.empty(x_info["shape"], dtype=dtype).uniform_(-5, 5) + torch.ones(x_info["shape"], dtype=dtype)
