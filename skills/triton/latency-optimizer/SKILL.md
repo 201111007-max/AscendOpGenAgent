@@ -572,9 +572,41 @@ L = H * W  # 若 L=16，mask 覆盖率仅 6.25%
 
 ---
 
+### 优化点 15：连续拷贝聚合优化
+
+**适用条件**：算子为纯内存拷贝型（Split / Chunk / Slice / Pad 等），且多个输出块在输入侧构成连续内存区域
+
+**典型代码特征**：
+```python
+# 特征 1：按 chunk 分块拷贝，每个 program 只处理少量元素
+chunk_idx = tl.program_id(0)  # grid 第一维与 chunk 数量绑定
+row = tl.program_id(1)
+chunk_size = tl.load(chunk_offsets_ptr + chunk_idx + 1) - tl.load(chunk_offsets_ptr + chunk_idx)
+# ... 只拷贝 chunk_size 个元素 ...
+
+# 特征 2：grid 大小与分块数量成正比，可能远超物理核数
+grid = (num_chunks, num_rows)  # 如 (64, 16) = 1024，远超 48 核
+
+# 特征 3：需要动态加载每个 chunk 的偏移量
+src_offset = tl.load(chunk_offsets_ptr + chunk_idx)
+```
+
+**判断逻辑**：
+1. 检查算子类型：是否为 Split / Chunk / Slice / Unbind / Pad 等纯拷贝型算子
+2. 检查内存连续性：
+   - 输入张量在被切分维度上是否连续（stride = 1 或切分 dim 为最后一维）
+   - 所有输出块在输入侧的偏移是否满足 `offset[i+1] == offset[i] + size[i]`（无间隙）
+3. 检查当前实现模式：
+   - 是否存在 `grid = (num_chunks, ...)` 或每个 program 只处理一个分块
+   - 每个 program 处理的数据量是否小于 4096 元素（粒度太细）
+4. 若 1+2+3 同时满足 → 命中
+
+**参考文档**：`references/continuous-copy-aggregation.md`
+---
+
 ## 优化流程
 ```
-1. 按顺序检查优化点 1 → 2 → 3 → ... → 13 → 14
+1. 按顺序检查优化点 1 → 2 → 3 → ... → 13 → 14 → 15
 2. 对于当前优化点，先判断是否命中（代码特征满足 + 适用条件成立）：
    - 未命中 → 跳过，检查下一优化点
    - 命中 → 参考对应文档，应用优化策略
@@ -634,4 +666,5 @@ L = H * W  # 若 L=16，mask 覆盖率仅 6.25%
 | Autotune 自动调优 | `references/autotune.md` |
 | 混合策略自动选择 | `references/mixed_strategy.md` |
 | 维度合并与大 BLOCK 累加 | `../kernel-generator/references/triton-ascend-reduce.md` |
+| 连续拷贝聚合优化 | `references/continuous-copy-aggregation.md` |
 | 代码规范检查 | `references/checklist.md` |
